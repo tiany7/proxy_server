@@ -6,7 +6,7 @@ int main() {
     try {
         // Create a shared memory object
         boost::interprocess::shared_memory_object shm(
-            boost::interprocess::create_only, "MySharedMemory", boost::interprocess::read_write);
+            boost::interprocess::open_or_create, "MySharedMemory", boost::interprocess::read_write);
 
         // Set the size of the shared memory
         shm.truncate(1024);
