@@ -20,3 +20,25 @@ cc_binary(
     copts = ["-I/usr/include/boost", "-std=c++20"], 
     linkopts = ["-L/usr/include/boost/lib", "-lboost_system", "-lrt", "-lpthread"], 
 )
+
+cc_library(
+    name = "session_server",
+    hdrs = ["session.hpp"],
+    deps = [":data_resolver",
+            "//proto:route_server_proto",
+            ],
+    copts = ["-std=c++20"],
+    # copts = ["-I/usr/include/boost", "-std=c++20"], 
+    # linkopts = ["-L/usr/include/boost/lib", "-lboost_system", "-lrt"], 
+    visibility = ["//visibility:public"]
+)
+
+
+cc_binary(
+    name = "route_server_main",
+    srcs = ["route_server_main.cpp"],
+    deps = [":session_server",
+            ],
+    copts = ["-I/usr/include/boost", "-std=c++20"], 
+    linkopts = ["-L/usr/include/boost/lib", "-lboost_system", "-lrt"], 
+)

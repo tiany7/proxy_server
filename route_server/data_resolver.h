@@ -19,6 +19,8 @@ private:
     // TODO(yuanhan): consider changing this to atomic shared pointer
     std::shared_ptr<boost::lockfree::queue<Result<T>>> data_queue_;
     std::atomic<bool> stop_fetching_; // stop fetching data from the source
+    void request_read();
+    void request_mock_read(T value);
 
 // TODO(yuanhan): think about how to launch a request to binance
 // TODO(yuanhan): try multiplexing using shared memory
@@ -28,6 +30,5 @@ public:
     std::shared_ptr<boost::lockfree::queue<Result<T>>> SubscribeData();
     std::shared_ptr<boost::lockfree::queue<Result<T>>> MockSubscribeData(T default_value);
     void Stop();
-    void request_read();
-    void request_mock_read(T value);
+    
 };
