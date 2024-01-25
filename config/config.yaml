@@ -1,3 +1,5 @@
-subscribe_stock:
-  - 000001.SZ
-  - 600000.SH
+default_config:
+  outbound_port: 8080
+  inbound_port: 8081
+  
+

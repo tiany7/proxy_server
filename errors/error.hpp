@@ -1,0 +1,53 @@
+#pragma once
+
+#include <variant>
+#include <iostream>
+#include <string>
+
+enum class DataError {
+    BrokenPipe,
+    ConnectionReset,
+    ConnectionAborted,
+    UnknownError,
+};
+
+template <typename T, typename = std::enable_if_t<!std::is_same_v<T, MyError>>>
+struct Result {
+private:
+    std::variant<T, DataError> result_;
+
+public:
+    Result(const T& value) : result_(value) {}
+    Result(const MyError& error) : result_(error) {}
+
+    bool is_err() const {
+        return std::holds_alternative<DataError>(result_);
+    }
+
+    bool is_ok() const {
+        return std::holds_alternative<T>(result_);
+    }
+
+    // get value, throw exception if error
+    DataError deref() const {
+        if (is_err()) 
+            throw std::runtime_error("Error: " + std::to_string(static_cast<int>(std::get<DataError>(result_))));
+        else 
+            return std::get<T>(result_);
+    }
+
+    DataError msg() const {
+        return std::get<DataError>(result_);
+    }
+
+    // reload the operator
+    friend std::ostream& operator<<(std::ostream& os, const Result& result) {
+        if (result.is_ok()) {
+            os << "Success: " << result.deref();
+        } else {
+            os << "Error: " << static_cast<int>(result.getError());
+        }
+        return os;
+    }
+
+};
