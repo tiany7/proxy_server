@@ -1,5 +1,7 @@
-default_config:
+route_server:
   outbound_port: 8080
   inbound_port: 8081
-  
+  default_queue_size: 3
+
+
 
