@@ -19,15 +19,18 @@ public:
           timer_(io_context) {}
 
     void Start() {
+        
         doReadHeader();
     }
 
 private:
    void doReadHeader() {
     auto self(shared_from_this());
+    std::cout << "Waiting for request from client" << std::endl;
     boost::asio::async_read(socket_, boost::asio::buffer(&request_, sizeof(request_)),
         [this, self](boost::system::error_code ec, std::size_t length) {
             if (!ec) {
+                std::cout<<"Received message from client: " << request_.DebugString() << std::endl;
                 handleRequest();
                 startSendingData();
             } else if (ec == boost::asio::error::eof) {
@@ -64,7 +67,7 @@ private:
     void sendData() {
         // 从数据管理器中取出数据并发送
         Result<int> data;
-        while (!data_mgr_->pop(data)) {
+        while (data_mgr_->pop(data)) {
             route_server::HeartBeatResponse response;
             if (data.is_ok()) 
                 response.set_msg(data.deref());
@@ -102,6 +105,7 @@ public:
     Server(boost::asio::io_context& io_context, short port)
         : io_context_(io_context),
           acceptor_(io_context, boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), port)) {
+        
         doAccept();
     }
 
