@@ -2,6 +2,6 @@
 
 int main() {
     RouteServer server;
-    server.Run("localhost", 8081, 3);
+    server.Run("0.0.0.0", 8081, 3);
     return 0;
 }

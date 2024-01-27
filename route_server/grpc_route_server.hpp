@@ -8,11 +8,8 @@
 #include <grpcpp/server_builder.h>
 #include <grpcpp/server_context.h>
 #include <grpcpp/server_posix.h>
+#include <boost/thread/thread.hpp>
 
-// Add the missing include for grpcpp/server_thread_pool.h
-#include <grpcpp/server_thread_pool.h>
-
-// 其他的头文件和代码
 
 
 #include "data_resolver.h"
@@ -36,16 +33,20 @@ public:
         auto default_value = request->msg();
         auto data_resolver = std::make_unique<DataResolver<int>>();
         // points to mock data
-        std::atomic<std::shared_ptr<boost::lockfree::queue<Result<int>>>> handle;
-        handle.store(std::move(data_resolver->MockSubscribeData(default_value)));
+        auto handle = std::move(data_resolver->MockSubscribeData(default_value));
         Result<int> result;
-        while (!context->IsCancelled() && !context->IsFinished()) {
-            while (handle.load()->pop(result)) {
+        while (true) {
+            while (handle->pop(result)) {
+                std::cout<<boost::thread::id()<<" Received message from client: " << *result << std::endl;
                 response.set_msg(*result);
-                writer->Write(response);
+                auto status = writer->Write(response);
+                if (!status) {
+                    std::cout<<"Client disconnected"<<std::endl;
+                    goto end;
+                }
             }
         }
-
+end:
         return grpc::Status::OK;
     }
 };
@@ -59,12 +60,22 @@ public:
         builder.AddListeningPort(server_addr + ":" + std::to_string(port), grpc::InsecureServerCredentials());
         builder.RegisterService(&service);
 
-        std::shared_ptr<grpc::ThreadPoolInterface> thread_pool = grpc::CreateDefaultThreadPool(4);
-        builder.SetThreadPool(thread_pool);
+
+        boost::thread_group threadPool;
+
 
         std::unique_ptr<grpc::Server> server(builder.BuildAndStart());
-        server->Wait();
+        
+        
+        for (int i = 0; i < max_threads; ++i) { 
+            threadPool.create_thread([&server]() {
+                server->Wait();
+            });
+        }
+
+        
+        threadPool.join_all();
     }
-}
+};
 
 

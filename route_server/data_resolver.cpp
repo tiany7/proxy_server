@@ -35,7 +35,7 @@ std::shared_ptr<boost::lockfree::queue<Result<T>>> DataResolver<T>::MockSubscrib
 template <typename T>   
 void DataResolver<T>::Stop() {
     // use a spinlock to stop fetching data
-    for (bool expected = false; !stop_fetching_.compare_exchange_strong(expected, true); expected = false);
+    for (bool expected = false; !stop_fetching_.compare_exchange_weak(expected, true); expected = false);
 }
 
 template <typename T>   

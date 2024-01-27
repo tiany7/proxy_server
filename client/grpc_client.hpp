@@ -12,10 +12,9 @@ public:
     void GetClientHeartBeat() {
         route_server::HeartBeatRequest request;
         route_server::HeartBeatResponse response;
-
+        request.set_msg(666);
         grpc::ClientContext context;
         std::unique_ptr<grpc::ClientReader<route_server::HeartBeatResponse>> reader(stub_->GetClientHeartBeat(&context, request));
-
         for (int i = 0; i < 10; i++) {
             if (reader->Read(&response)) {
                 std::cout << "Received message from server: " << response.DebugString() << std::endl;
@@ -25,12 +24,12 @@ public:
             }
         }
 
-        grpc::Status status = reader->Finish();
-        if (status.ok()) {
-            std::cout << "RPC finished successfully." << std::endl;
-        } else {
-            std::cerr << "RPC failed: " << status.error_message() << std::endl;
-        }
+        // grpc::Status status = reader->Finish();
+        // if (status.ok()) {
+        //     std::cout << "RPC finished successfully." << std::endl;
+        // } else {
+        //     std::cerr << "RPC failed: " << status.error_message() << std::endl;
+        // }
     }
 
 private:

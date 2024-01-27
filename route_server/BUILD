@@ -21,17 +21,6 @@ cc_binary(
     linkopts = ["-L/usr/include/boost/lib", "-lboost_system", "-lrt", "-lpthread"], 
 )
 
-cc_library(
-    name = "session_server",
-    hdrs = ["session.hpp"],
-    deps = [":data_resolver",
-            "//proto:route_server_proto",
-            ],
-    copts = ["-std=c++20"],
-    # copts = ["-I/usr/include/boost", "-std=c++20"], 
-    # linkopts = ["-L/usr/include/boost/lib", "-lboost_system", "-lrt"], 
-    visibility = ["//visibility:public"]
-)
 
 cc_library(
     name = "grpc_route_server",
@@ -39,9 +28,10 @@ cc_library(
     deps = [":data_resolver",
             "//proto:route_server_cc_grpc",
             "@com_github_grpc_grpc//:grpc++",
-            "@com_github_grpc_grpc//:grpc++_reflection",],
-    includes = ["@com_github_grpc_grpc//src/cpp/server"], 
-    copts = ["-std=c++20"],
+            "@com_github_grpc_grpc//:grpc++_reflection",
+            ],
+    copts = ["-I/usr/include/boost", "-std=c++20"], 
+    linkopts = ["-L/usr/include/boost/lib", "-lboost_system", "-lrt", "-lboost_thread", "-lpthread"], 
 )
 
 
@@ -51,5 +41,5 @@ cc_binary(
     deps = [":grpc_route_server",
             ],
     copts = ["-I/usr/include/boost", "-std=c++20"], 
-    linkopts = ["-L/usr/include/boost/lib", "-lboost_system", "-lrt"], 
+    linkopts = ["-L/usr/include/boost/lib", "-lboost_system", "-lrt", "-lboost_thread", "-lpthread"], 
 )
