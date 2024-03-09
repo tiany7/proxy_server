@@ -23,6 +23,7 @@ anyhow = "1.0"
 fehler = { version = "1.0.0-alpha.2" }
 env_logger = "0.9"
 futures = "0.3"
+rust_decimal = "1.10.0"
 
 [build-dependencies]
 tonic-build = "0.11"
@@ -41,3 +42,11 @@ path = "client/tonic_client.rs"
 [[bin]]
 name = "websocket_server"
 path = "binance_data/websocket.rs"
+
+[[bin]]
+name = "binance_client"
+path = "client/binance_client.rs"
+
+[[bin]]
+name = "binance_server"
+path = "binance_data/binance_grpc_server.rs"

@@ -1,0 +1,23 @@
+syntax = "proto3";
+package trade;
+
+message GetAggTradeRequest{
+    string symbol = 1;
+}
+
+message GetAggTradeResponse{
+    string symbol = 1;
+    bool is_buyer_maker = 2;
+    double price = 3;
+    double quantity = 4;
+    string event_type = 5;
+    uint64 first_break_trade_id = 6;
+    uint64 last_break_trade_id = 7;
+    uint64 aggregated_trade_id = 8;
+    uint64 trade_time = 9;
+}
+
+
+service Trade{
+    rpc GetAggTradeStream(GetAggTradeRequest) returns (stream GetAggTradeResponse);
+}
