@@ -1,0 +1,32 @@
+[package]
+authors = ["tiany7 <yt2825@columbia.edu>"]
+edition = "2021"
+license = "MIT"
+name = "proxy_server"
+publish = false
+version = "0.1.0"
+
+[dependencies]
+tonic = "0.11"
+prost = "0.12"
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tokio-stream = "0.1"
+
+async-stream = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rand = "0.7"
+chrono = "0.4"
+
+[build-dependencies]
+tonic-build = "0.11"
+
+
+[[bin]]
+name = "market_data_server"
+path = "market_data_manager/market_data_manager.rs"
+
+
+[[bin]]
+name = "market_client"
+path = "client/tonic_client.rs"

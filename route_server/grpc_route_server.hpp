@@ -53,7 +53,7 @@ end:
 
 class RouteServer {
 public:
-    void Run(const std::string &server_addr, short port, short max_threads) {
+    void Run(const std::string &server_addr, short port, short max_threads = 1) {
 
         grpc::ServerBuilder builder;
         RouteServerImpl service;

@@ -1,3 +1,4 @@
 # .gitignore
 bazel-*
-
+config/binance-config.yaml
+target/

@@ -7,6 +7,13 @@ git_repository(
     commit = "9eb1142900096b9115ba2db2a521c76c117cacd9",
 )
 
+
+git_repository(
+    name = "binance-cpp",
+    remote = "https://github.com/tiany7/binance-cpp.git",
+    commit = "7d4e4c3b7992801f46d46735a68bb8343aafb644",
+)
+
 http_archive(
     name = "com_google_googletest",
     urls = ["https://github.com/google/googletest/archive/16f637fbf4ffc3f7a01fa4eceb7906634565242f.zip"],
@@ -38,3 +45,9 @@ grpc_extra_deps()
 
 load("@com_google_protobuf//:protobuf_deps.bzl", "protobuf_deps")
 protobuf_deps()
+
+git_repository(
+    name = "json_lib",
+    remote = "https://github.com/nlohmann/json.git",
+    commit = "a3e6e26dc83a726b292f5be0492fcc408663ce55",
+)

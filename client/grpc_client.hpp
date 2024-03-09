@@ -23,13 +23,6 @@ public:
                 break;
             }
         }
-
-        // grpc::Status status = reader->Finish();
-        // if (status.ok()) {
-        //     std::cout << "RPC finished successfully." << std::endl;
-        // } else {
-        //     std::cerr << "RPC failed: " << status.error_message() << std::endl;
-        // }
     }
 
 private:

@@ -6,10 +6,10 @@ template class DataResolver<int>;
 
 template <typename T>
 DataResolver<T>::DataResolver() :stop_fetching_(false) {
-    auto &&config_path = kStaticRoot + kConfigPath;
-    auto &&config = YAML::LoadFile(config_path.c_str());
-    auto &&route_server_conf =  config["route_server"];
-    auto &&default_queue_size = route_server_conf["default_queue_size"].as<short>();
+    // auto &&config_path = kStaticRoot + kConfigPath;
+    // auto &&config = YAML::LoadFile(config_path.c_str());
+    // auto &&route_server_conf =  config["route_server"];
+    // auto &&default_queue_size = route_server_conf["default_queue_size"].as<short>();
 
 
     data_queue_ = std::make_shared<boost::lockfree::queue<Result<T>>>(default_queue_size);
