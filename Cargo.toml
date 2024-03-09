@@ -18,6 +18,12 @@ serde_json = "1.0"
 rand = "0.7"
 chrono = "0.4"
 
+binance-async = "0.3.0"
+anyhow = "1.0"
+fehler = { version = "1.0.0-alpha.2" }
+env_logger = "0.9"
+futures = "0.3"
+
 [build-dependencies]
 tonic-build = "0.11"
 
@@ -30,3 +36,8 @@ path = "market_data_manager/market_data_manager.rs"
 [[bin]]
 name = "market_client"
 path = "client/tonic_client.rs"
+
+
+[[bin]]
+name = "websocket_server"
+path = "binance_data/websocket.rs"
