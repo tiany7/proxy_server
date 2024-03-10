@@ -28,6 +28,7 @@ pub mod trade {
 
 #[derive(Debug)]
 pub struct TradeService {
+    config: BinanceServerConfig,
     binance_mgr: Arc<Mutex<websocket_manager::BinanceWebsocketManager>>,
 }
 
@@ -100,9 +101,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let reader = BufReader::new(file);
     
     let config :BinanceServerConfig = serde_yaml::from_reader(reader).expect("Unable to parse YAML");
-    let addr = format!("[::1]:{}", config.port).parse().unwrap();
+    let addr = format!("0.0.0.0:{}", 10000).parse().unwrap();
 
     let market = TradeService {
+        config,
         binance_mgr: Arc::new(Mutex::new(websocket_manager::BinanceWebsocketManager::new().await)),
     };
 

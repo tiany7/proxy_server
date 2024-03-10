@@ -2,3 +2,5 @@
 bazel-*
 config/config.yaml
 target/
+python_lib/__pycache__/
+python_lib/*_pb2*
