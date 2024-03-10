@@ -1,8 +1,8 @@
 mod websocket_manager;
 mod binance_server_config;
 
-use std::collections::HashMap;
-use std::pin::Pin;
+
+
 use std::sync::Arc;
 use std::fs::File;
 use std::io::BufReader;
@@ -11,14 +11,14 @@ use std::io::BufReader;
 use binance_async::websocket::usdm::WebsocketMessage::AggregateTrade;
 use tokio::sync::{mpsc, Mutex};
 use tonic::{transport::Server, Request, Response, Status};
-use tokio_stream::{wrappers::ReceiverStream, Stream};
+use tokio_stream::{wrappers::ReceiverStream};
 use trade::{GetAggTradeRequest, GetAggTradeResponse};
 use trade::trade_server::{Trade, TradeServer};
-use rust_decimal::{Decimal, prelude::ToPrimitive}; // Import the Decimal type
+use rust_decimal::{prelude::ToPrimitive}; // Import the Decimal type
 use binance_server_config::BinanceServerConfig;
 use serde_yaml;
 
-use crate::Trade as my_trade; 
+ 
 
 
 pub mod trade {
@@ -26,7 +26,7 @@ pub mod trade {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TradeService {
     config: BinanceServerConfig,
     binance_mgr: Arc<Mutex<websocket_manager::BinanceWebsocketManager>>,
@@ -41,12 +41,12 @@ impl Trade for TradeService {
         &self,
         request: Request<GetAggTradeRequest>,
     ) -> Result<Response<Self::GetAggTradeStreamStream>, Status> {
-        let (tx, rx) = mpsc::channel(4);
+        let (tx, rx) = mpsc::channel(self.config.default_buffer_size);
         
         let binance_mgr_clone = self.binance_mgr.clone();
         let requested_symbol = request.into_inner().symbol;
         tokio::spawn(async move {
-            let mut binance_mgr = binance_mgr_clone.lock().await;
+            let binance_mgr = binance_mgr_clone.lock().await;
             let mut ws = binance_mgr.subscribe(websocket_manager::BinanceWebsocketOption::AggTrage(requested_symbol))
                 .await
                 .unwrap();
@@ -101,7 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let reader = BufReader::new(file);
     
     let config :BinanceServerConfig = serde_yaml::from_reader(reader).expect("Unable to parse YAML");
-    let addr = format!("0.0.0.0:{}", 10000).parse().unwrap();
+    let addr = format!("0.0.0.0:{}", config.port).parse().unwrap();
 
     let market = TradeService {
         config,

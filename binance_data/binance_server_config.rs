@@ -12,7 +12,7 @@ fn default_buffer_size() -> usize {
     10
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, Clone)]
 pub struct BinanceServerConfig {
     pub port: usize,
     pub api_key: String,

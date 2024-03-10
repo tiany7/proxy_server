@@ -9,13 +9,13 @@ use binance_async::{
 use futures::StreamExt;
 
 
-
+#[allow(dead_code)]
 pub enum BinanceWebsocketOption{
     AggTrage(String),
-    bookTicker(String),
-    NULL,
+    BookTicker(String),
+    Null,
 }
-
+#[allow(dead_code)]
 pub struct BinanceWebsocketManager {
     binance: Binance,
     listen_key: String,
@@ -45,10 +45,10 @@ impl BinanceWebsocketManager {
     pub async fn subscribe(&self, option: BinanceWebsocketOption) -> Result<tokio::sync::mpsc::Receiver<WebsocketMessage>, Error> {
         let mut ws = match option {
             BinanceWebsocketOption::AggTrage(symbol) => {
-                let mut ws = BinanceWebsocket::new(&[self.listen_key.as_str(), &format!("{}@aggTrade", symbol)]).await.expect("error establishing");
+                let ws = BinanceWebsocket::new(&[self.listen_key.as_str(), &format!("{}@aggTrade", symbol)]).await.expect("error establishing");
                 Ok(ws)
             }
-            BinanceWebsocketOption::bookTicker(symbol) => {
+            BinanceWebsocketOption::BookTicker(symbol) => {
                 let ws = BinanceWebsocket::new(&[self.listen_key.as_str(), &format!("{}@bookTicker", symbol)]).await?;
                 Ok(ws)
             }
