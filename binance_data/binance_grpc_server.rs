@@ -1,18 +1,25 @@
+mod websocket_manager;
+mod binance_server_config;
+
+use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::fs::File;
+use std::io::BufReader;
 
 
 use binance_async::websocket::usdm::WebsocketMessage::AggregateTrade;
 use tokio::sync::{mpsc, Mutex};
 use tonic::{transport::Server, Request, Response, Status};
 use tokio_stream::{wrappers::ReceiverStream, Stream};
-
 use trade::{GetAggTradeRequest, GetAggTradeResponse};
 use trade::trade_server::{Trade, TradeServer};
-use crate::Trade as my_trade; 
 use rust_decimal::{Decimal, prelude::ToPrimitive}; // Import the Decimal type
+use binance_server_config::BinanceServerConfig;
+use serde_yaml;
 
-mod websocket_manager;
+use crate::Trade as my_trade; 
+
 
 pub mod trade {
     tonic::include_proto!("trade");
@@ -77,9 +84,23 @@ impl Trade for TradeService {
 }
 
 
+
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let addr = "[::1]:10000".parse().unwrap();
+    let working_dir = std::env::current_dir()
+                                    .expect("Failed to get current directory")
+                                    .join("config")
+                                    .join("config.yaml");
+    let working_dir = working_dir.to_str().expect("Failed to get current directory");
+
+    let file = File::open(working_dir)
+                        .expect("Unable to open config file");
+    
+    let reader = BufReader::new(file);
+    
+    let config :BinanceServerConfig = serde_yaml::from_reader(reader).expect("Unable to parse YAML");
+    let addr = format!("[::1]:{}", config.port).parse().unwrap();
 
     let market = TradeService {
         binance_mgr: Arc::new(Mutex::new(websocket_manager::BinanceWebsocketManager::new().await)),

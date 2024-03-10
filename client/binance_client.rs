@@ -8,7 +8,7 @@ use trade::trade_client::TradeClient;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut client = TradeClient::connect("http://[::1]:10000").await?;
+    
     let matches = App::new("Binance CLI Tool")
     .version("1.0")
     .author("tiany7")
@@ -28,6 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         symbol: requested_symbol.to_string(),
     });
 
+    let mut client = TradeClient::connect("http://[::1]:10000").await?;
     let response = client.get_agg_trade_stream(request).await?;
     let mut response = response.into_inner();
     let mut count = 0;
