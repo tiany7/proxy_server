@@ -1,4 +1,6 @@
-use std::env::var;
+
+
+
 use std::fmt::{self, Debug, Formatter};
 
 use anyhow::Error;
@@ -9,14 +11,46 @@ use binance_async::{
 use futures::StreamExt;
 
 
+
+fn default_port() -> usize {
+    10000
+}
+
+fn default_api_key() -> String {
+    "not set".to_string()
+}
+
+fn default_buffer_size() -> usize {
+    10
+}
+
+#[derive(Debug, serde::Deserialize, Clone)]
+pub struct BinanceServerConfig {
+    pub port: usize,
+    pub api_key: String,
+    pub default_buffer_size: usize,
+}
+
+impl Default for BinanceServerConfig {
+    fn default() -> BinanceServerConfig {
+        BinanceServerConfig {
+            port: default_port(),
+            api_key: default_api_key(),
+            default_buffer_size: default_buffer_size(),
+        }
+    }
+}
+
+
 #[allow(dead_code)]
 pub enum BinanceWebsocketOption{
-    AggTrage(String),
+    AggTrade(String),
     BookTicker(String),
     Null,
 }
 #[allow(dead_code)]
 pub struct BinanceWebsocketManager {
+    config: BinanceServerConfig,
     binance: Binance,
     listen_key: String,
     // ws: BinanceWebsocket<WebsocketMessage>,
@@ -32,11 +66,12 @@ impl Debug for BinanceWebsocketManager {
 
 
 impl BinanceWebsocketManager {
-    pub async fn new() -> Self {
+    pub async fn new(config: BinanceServerConfig) -> Self {
         // this will panic if the environment variable is not set
-        let binance = Binance::with_key(&var("BINANCE_KEY").expect("api key not set"));
+        let binance = Binance::with_key(&config.api_key);
         let listen_key = binance.request(StartUserDataStreamRequest {}).await.unwrap();
         BinanceWebsocketManager {
+            config,
             binance,
             listen_key: listen_key.listen_key,
         }
@@ -44,7 +79,7 @@ impl BinanceWebsocketManager {
 
     pub async fn subscribe(&self, option: BinanceWebsocketOption) -> Result<tokio::sync::mpsc::Receiver<WebsocketMessage>, Error> {
         let mut ws = match option {
-            BinanceWebsocketOption::AggTrage(symbol) => {
+            BinanceWebsocketOption::AggTrade(symbol) => {
                 let ws = BinanceWebsocket::new(&[self.listen_key.as_str(), &format!("{}@aggTrade", symbol)]).await.expect("error establishing");
                 Ok(ws)
             }
@@ -57,7 +92,7 @@ impl BinanceWebsocketManager {
             }
         }?;
 
-        let (tx, rx) = tokio::sync::mpsc::channel(4);
+        let (tx, rx) = tokio::sync::mpsc::channel(self.config.default_buffer_size);
         tokio::spawn(async move {
             while let Some(msg) = ws.next().await {
                 match msg {

@@ -1,7 +1,4 @@
 mod websocket_manager;
-mod binance_server_config;
-
-
 
 use std::sync::Arc;
 use std::fs::File;
@@ -15,10 +12,8 @@ use tokio_stream::{wrappers::ReceiverStream};
 use trade::{GetAggTradeRequest, GetAggTradeResponse};
 use trade::trade_server::{Trade, TradeServer};
 use rust_decimal::{prelude::ToPrimitive}; // Import the Decimal type
-use binance_server_config::BinanceServerConfig;
 use serde_yaml;
 
- 
 
 
 pub mod trade {
@@ -28,7 +23,7 @@ pub mod trade {
 
 #[derive(Debug, Clone)]
 pub struct TradeService {
-    config: BinanceServerConfig,
+    config: websocket_manager::BinanceServerConfig,
     binance_mgr: Arc<Mutex<websocket_manager::BinanceWebsocketManager>>,
 }
 
@@ -47,9 +42,12 @@ impl Trade for TradeService {
         let requested_symbol = request.into_inner().symbol;
         tokio::spawn(async move {
             let binance_mgr = binance_mgr_clone.lock().await;
-            let mut ws = binance_mgr.subscribe(websocket_manager::BinanceWebsocketOption::AggTrage(requested_symbol))
+            let mut ws = binance_mgr.subscribe(websocket_manager::BinanceWebsocketOption::AggTrade(requested_symbol))
                 .await
                 .unwrap();
+
+            // leave this scope to avoid deadlock
+            drop(binance_mgr);
             while let Some(msg) = ws.recv().await {
                 match msg {
                     AggregateTrade(msg) => {
@@ -100,12 +98,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     let reader = BufReader::new(file);
     
-    let config :BinanceServerConfig = serde_yaml::from_reader(reader).expect("Unable to parse YAML");
+    let config :websocket_manager::BinanceServerConfig = serde_yaml::from_reader(reader).expect("Unable to parse YAML");
     let addr = format!("0.0.0.0:{}", config.port).parse().unwrap();
 
     let market = TradeService {
-        config,
-        binance_mgr: Arc::new(Mutex::new(websocket_manager::BinanceWebsocketManager::new().await)),
+        config: config.clone(),
+        binance_mgr: Arc::new(Mutex::new(websocket_manager::BinanceWebsocketManager::new(config).await)),
     };
 
     let svc = TradeServer::new(market);

@@ -3,6 +3,10 @@ import os
 import grpc
 
 
+if os.path.exists("trade_pb2.py"):
+    os.remove("trade_pb2.py")
+if os.path.exists("trade_pb2_grpc.py"):
+    os.remove("trade_pb2_grpc.py")
 os.system("python3 -m grpc_tools.protoc -I../proto/ --python_out=. --grpc_python_out=. trade.proto")
 
 from trade_pb2 import GetAggTradeRequest

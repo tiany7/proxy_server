@@ -1,12 +1,10 @@
-use std::env::var;
+
 
 use anyhow::Error;
-use binance_async::{
-    rest::usdm::StartUserDataStreamRequest, websocket::usdm::WebsocketMessage, Binance,
-    BinanceWebsocket,
-};
+
 use fehler::throws;
-use futures::StreamExt;
+
+use websocket_manager::BinanceServerConfig;
 
 mod websocket_manager;
 
@@ -15,9 +13,9 @@ mod websocket_manager;
 async fn main() {
     env_logger::init();
 
-    let binance = websocket_manager::BinanceWebsocketManager::new()
+    let binance = websocket_manager::BinanceWebsocketManager::new(BinanceServerConfig::default())
                     .await;
-    let mut rx = binance.subscribe(websocket_manager::BinanceWebsocketOption::AggTrage("btcusdt".to_string()))
+    let mut rx = binance.subscribe(websocket_manager::BinanceWebsocketOption::AggTrade("btcusdt".to_string()))
                     .await?;
     while let Some(msg) = rx.recv().await {
         println!("{:?}", msg);
