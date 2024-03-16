@@ -17,7 +17,17 @@ message GetAggTradeResponse{
     uint64 trade_time = 9;
 }
 
+message GetHeartbeatRequest {
+    string ping = 1;
+    // could possibly add other message here
+}
+
+message GetHeartbeatResponse {
+    string pong = 1;
+    // could possibly add other message here
+}
 
 service Trade{
     rpc GetAggTradeStream(GetAggTradeRequest) returns (stream GetAggTradeResponse);
+    rpc GetClientHeartbeat(stream GetHeartbeatRequest) returns (stream GetHeartbeatResponse);
 }

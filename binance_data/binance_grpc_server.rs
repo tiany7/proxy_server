@@ -2,17 +2,19 @@ mod websocket_manager;
 
 use std::sync::Arc;
 use std::fs::File;
+use std::pin::Pin;
 use std::io::BufReader;
 
 
 use binance_async::websocket::usdm::WebsocketMessage::AggregateTrade;
 use tokio::sync::{mpsc, Mutex};
 use tonic::{transport::Server, Request, Response, Status};
-use tokio_stream::{wrappers::ReceiverStream};
-use trade::{GetAggTradeRequest, GetAggTradeResponse};
+use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
+use trade::{GetAggTradeRequest, GetAggTradeResponse,GetHeartbeatRequest, GetHeartbeatResponse};
 use trade::trade_server::{Trade, TradeServer};
 use rust_decimal::{prelude::ToPrimitive}; // Import the Decimal type
 use serde_yaml;
+use async_stream::stream;
 
 
 
@@ -80,6 +82,24 @@ impl Trade for TradeService {
         Ok(Response::new(ReceiverStream::new(rx)))
     }
 
+    type GetClientHeartbeatStream = Pin<Box<dyn Stream<Item = Result<GetHeartbeatResponse, Status>> + Send  + 'static>>;
+    async fn get_client_heartbeat(
+        &self,
+        request: Request<tonic::Streaming<GetHeartbeatRequest>>,
+    ) -> Result<Response<Self::GetClientHeartbeatStream>, Status> {
+        let mut stream = request.into_inner();
+        let output = async_stream::try_stream!{
+            while let Some(request) = stream.next().await {
+                let request = request?;
+                let response = GetHeartbeatResponse {
+                    pong: format!("Received: {}", request.ping),
+                };
+                yield response;
+            }
+        };
+        Ok(Response::new(Box::pin(output)
+        as Self::GetClientHeartbeatStream))
+    }
 }
 
 
