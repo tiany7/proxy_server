@@ -1,6 +1,6 @@
 # .gitignore
 bazel-*
-config/config.yaml
+config/*.yaml
 target/
 python_lib/__pycache__/
 python_lib/*_pb2*
