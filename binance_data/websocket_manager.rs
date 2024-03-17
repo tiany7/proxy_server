@@ -11,7 +11,6 @@ use binance_async::{
 use futures::StreamExt;
 
 
-
 fn default_port() -> usize {
     10000
 }

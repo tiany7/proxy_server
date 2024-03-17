@@ -45,6 +45,11 @@ path = "client/binance_client.rs"
 name = "binance_server"
 path = "binance_data/binance_grpc_server.rs"
 
+[[bin]]
+name = "pipeline_server"
+path = "binance_data_pipeline/pipeline_main.rs"
+
 
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.8"
+

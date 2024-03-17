@@ -10,11 +10,11 @@ use binance_async::websocket::usdm::WebsocketMessage::AggregateTrade;
 use tokio::sync::{mpsc, Mutex};
 use tonic::{transport::Server, Request, Response, Status};
 use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
-use trade::{GetAggTradeRequest, GetAggTradeResponse,GetHeartbeatRequest, GetHeartbeatResponse};
+use trade::{GetAggTradeRequest, AggTradeData, GetAggTradeResponse,GetHeartbeatRequest, GetHeartbeatResponse};
 use trade::trade_server::{Trade, TradeServer};
 use rust_decimal::{prelude::ToPrimitive}; // Import the Decimal type
 use serde_yaml;
-use async_stream::stream;
+use async_stream::try_stream;
 
 
 
@@ -53,7 +53,7 @@ impl Trade for TradeService {
             while let Some(msg) = ws.recv().await {
                 match msg {
                     AggregateTrade(msg) => {
-                        let response = GetAggTradeResponse {
+                        let inner = AggTradeData {
                             symbol: msg.symbol,
                             price: msg.price.to_f64().unwrap(),
                             quantity: msg.qty.to_f64().unwrap(),
@@ -63,6 +63,9 @@ impl Trade for TradeService {
                             first_break_trade_id: msg.first_break_trade_id,
                             last_break_trade_id: msg.last_break_trade_id,
                             aggregated_trade_id: msg.aggregated_trade_id,
+                        };
+                        let response = GetAggTradeResponse {
+                            data: Some(inner),
                         };
                         tx.send(Ok(response)).await.map_err(|e| Status::internal(e.to_string())).unwrap();
                     }

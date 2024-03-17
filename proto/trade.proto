@@ -5,7 +5,7 @@ message GetAggTradeRequest{
     string symbol = 1;
 }
 
-message GetAggTradeResponse{
+message AggTradeData {
     string symbol = 1;
     bool is_buyer_maker = 2;
     double price = 3;
@@ -17,6 +17,10 @@ message GetAggTradeResponse{
     uint64 trade_time = 9;
 }
 
+message GetAggTradeResponse{
+    AggTradeData data = 1;
+}
+
 message GetHeartbeatRequest {
     string ping = 1;
     // could possibly add other message here
@@ -26,6 +30,8 @@ message GetHeartbeatResponse {
     string pong = 1;
     // could possibly add other message here
 }
+
+
 
 service Trade{
     rpc GetAggTradeStream(GetAggTradeRequest) returns (stream GetAggTradeResponse);
