@@ -37,3 +37,15 @@ service Trade{
     rpc GetAggTradeStream(GetAggTradeRequest) returns (stream GetAggTradeResponse);
     rpc GetClientHeartbeat(stream GetHeartbeatRequest) returns (stream GetHeartbeatResponse);
 }
+
+
+// for utility in server, not for rpc
+message Column {
+    string column_name = 1;
+    oneof data {
+    string string_value = 3;
+    uint64 uint_value = 4;
+    bool bool_value = 5;
+    double double_value = 6;
+    };
+}
