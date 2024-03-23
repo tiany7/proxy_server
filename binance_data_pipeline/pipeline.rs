@@ -1,10 +1,15 @@
 use std::convert::{TryFrom, TryInto};
 use std::vec::Vec;
 use std::any::Any;
+use std::sync::Arc;
 
+use arrow::datatypes::Schema;
 use tokio::sync::mpsc;
 use anyhow::{Result,Error};
 use trade::{Column, AggTradeData};
+use arrow::record_batch::RecordBatch;
+use arrow::datatypes::{DataType, Field};
+use arrow::array::{ArrayRef, Float64Array, StringArray};
 
 use crate::pipeline::trade::column::Data;
 
@@ -38,6 +43,11 @@ impl Into<SampleData> for ChannelData {
     }
 }
 
+impl Into<RecordBatch> for ChannelData {
+    fn into(self) -> RecordBatch {
+        *self.0.downcast::<RecordBatch>().unwrap()
+    }
+}
 
 impl Into<AggTradeData> for ChannelData {
     fn into(self) -> AggTradeData {
@@ -66,8 +76,13 @@ pub trait Transformer {
 }
 
 
-pub struct SampleTransformer {
-    
+// transformers start here
+pub struct SampleTransformer;
+pub struct AggTradeDataTransformer;
+pub struct SplitColumnTransformer;
+pub struct CollectColumnTransformer {
+    // in milliseconds, this is used to control the granularity of the data
+    granularity: chrono::Duration,
 }
 
 impl Transformer for SampleTransformer {
@@ -82,10 +97,9 @@ impl Transformer for SampleTransformer {
 
 // we will synethize the bar after this
 
-pub struct AggTradeDataTransformer;
 
 impl Transformer for AggTradeDataTransformer {
-    async fn transform(&self, mut input: Vec<mpsc::Receiver<ChannelData>>, mut output: Vec<mpsc::Sender<ChannelData>>) -> Result<()> {
+    async fn transform(&self, mut input: Vec<mpsc::Receiver<ChannelData>>, output: Vec<mpsc::Sender<ChannelData>>) -> Result<()> {
         // might do something here
         while let Some(data) = input[0].recv().await {
             let data : AggTradeData = data.into();
@@ -97,7 +111,7 @@ impl Transformer for AggTradeDataTransformer {
 
 
 // split the column into 9 columns
-pub struct SplitColumnTransformer;
+
 
 impl Transformer for SplitColumnTransformer {
     async fn transform(&self, mut input: Vec<mpsc::Receiver<ChannelData>>, output: Vec<mpsc::Sender<ChannelData>>) -> Result<()> {
@@ -128,37 +142,175 @@ impl Transformer for SplitColumnTransformer {
             trade_time_col.data = Some(Data::UintValue(data.trade_time));
 
 
-            let mut first_break_trade_id_col = Column::default();
-            first_break_trade_id_col.column_name = "first_break_trade_id".to_string();
-            first_break_trade_id_col.data = Some(Data::UintValue(data.first_break_trade_id));
+            // let mut first_break_trade_id_col = Column::default();
+            // first_break_trade_id_col.column_name = "first_break_trade_id".to_string();
+            // first_break_trade_id_col.data = Some(Data::UintValue(data.first_break_trade_id));
 
-            let mut last_break_trade_id_col = Column::default();
-            last_break_trade_id_col.column_name = "last_break_trade_id".to_string();
-            last_break_trade_id_col.data = Some(Data::UintValue(data.last_break_trade_id));
+            // let mut last_break_trade_id_col = Column::default();
+            // last_break_trade_id_col.column_name = "last_break_trade_id".to_string();
+            // last_break_trade_id_col.data = Some(Data::UintValue(data.last_break_trade_id));
 
             let mut aggregated_trade_id_col = Column::default();
             aggregated_trade_id_col.column_name = "aggregated_trade_id".to_string();
             aggregated_trade_id_col.data = Some(Data::UintValue(data.aggregated_trade_id));
 
-            let mut event_type_col = Column::default();
-            event_type_col.column_name = "event_type".to_string();
-            event_type_col.data = Some(Data::StringValue(data.event_type));
+            // let mut event_type_col = Column::default();
+            // event_type_col.column_name = "event_type".to_string();
+            // event_type_col.data = Some(Data::StringValue(data.event_type));
 
             output[0].send(ChannelData::new(symbol_col)).await?;
             output[1].send(ChannelData::new(is_buyer_maker_col)).await?;
             output[2].send(ChannelData::new(price_col)).await?;
             output[3].send(ChannelData::new(quantity_col)).await?;
             output[4].send(ChannelData::new(trade_time_col)).await?;
-            output[5].send(ChannelData::new(first_break_trade_id_col)).await?;
-            output[6].send(ChannelData::new(last_break_trade_id_col)).await?;
-            output[7].send(ChannelData::new(aggregated_trade_id_col)).await?;
-            output[8].send(ChannelData::new(event_type_col)).await?;
+            // output[5].send(ChannelData::new(first_break_trade_id_col)).await?;
+            // output[6].send(ChannelData::new(last_break_trade_id_col)).await?;
+            output[5].send(ChannelData::new(aggregated_trade_id_col)).await?;
+            // output[8].send(ChannelData::new(event_type_col)).await?;
 
         }
         Ok(())
     }
 }
 
+
+// this is to collect the columns
+impl Transformer for CollectColumnTransformer {
+    async fn transform(&self, mut input: Vec<mpsc::Receiver<ChannelData>>, output: Vec<mpsc::Sender<ChannelData>>) -> Result<()> {
+        let mut records: Vec<Vec<Column>> = Vec::new();
+        records.resize(7, Vec::new());
+        // create a timestamp option
+        let mut start: Option<u64> = None;
+    
+        let mut missing_records = 0;
+        let mut last_id = 0;
+        let mut is_terminated = false;
+        loop {
+            // if one of the input is closed, we should close exit the propagate the error
+            for idx in 0..6 {
+                match input[idx].recv().await {
+                    Some(data) => {
+                        let data: Column = data.into();
+                        records[idx].push(data);
+                    },
+                    None => {
+                        is_terminated = true;
+                        break;
+                    }
+                }
+            }
+            if is_terminated {
+                break;
+            }
+
+            // count the missing value
+            let current_trade_id = match records[5].last().unwrap().data {
+                Some(Data::UintValue(trade_id)) => trade_id,
+                _ => panic!("trade_id is not uint"), // this is unlikely
+            };
+            
+            if current_trade_id != last_id + 1 {
+                if last_id != 0 {
+                    missing_records += current_trade_id - last_id - 1;
+                }
+            } 
+            last_id = current_trade_id; // update the last trade_id
+
+            // check the timestamp column and see whether we should flush the data
+            let latest_timestamp_col = records[5].last().unwrap();
+            let current_timestamp = match latest_timestamp_col.data {
+                Some(Data::UintValue(timestamp)) => timestamp,
+                _ => panic!("timestamp column is not uint"), // this is unlikely
+            };
+            
+            if start.is_none() {
+                start = Some(current_timestamp);
+                continue;
+            }
+            
+            // if the time difference is greater than the granularity, we should flush the data
+            if current_timestamp - start.unwrap() >= self.granularity.num_milliseconds() as u64 {
+                let schema = Schema::new(vec![
+                    Field::new("symbol", DataType::Utf8, false),
+                    Field::new("is_buyer_maker", DataType::Boolean, false),
+                    Field::new("price", DataType::Float64, false),
+                    Field::new("quantity", DataType::Float64, false),
+                    Field::new("trade_time", DataType::UInt64, false),
+                    Field::new("aggregated_trade_id", DataType::UInt64, false),
+                    Field::new("missing_count", DataType::UInt32, false),
+                ]);
+                let mut arrays: Vec<Arc<dyn arrow::array::Array>> = Vec::new();
+                for idx in 0..6 {
+                    // decide the data type of each column
+                    // and convert to arrow array
+                    let array = match &records[idx].last().as_mut().unwrap().data {
+                        Some(column) => {
+                            match column {
+                                Data::StringValue(_) => {
+                                    // obtain a rust string array
+                                    let mut string_array: Vec<String> = records[idx].iter().map(|col| {
+                                        match col.data {
+                                            Some(Data::StringValue(value)) => value,
+                                            _ => "null".to_string(),
+                                        }
+                                    }).collect();
+                                    Arc::new(StringArray::from(string_array)) as Arc<dyn arrow::array::Array>
+                                },
+                                Data::DoubleValue(_) => {
+                                    // we should create a double array
+                                    let mut double_array : Vec<f64> = records[idx].iter().map(|col| {
+                                        match col.data {
+                                            Some(Data::DoubleValue(value)) => value,
+                                            _ => 0.0,
+                                        }
+                                    }).collect();
+                                    Arc::new(Float64Array::from(double_array)) as Arc<dyn arrow::array::Array>
+                                },
+                                Data::UintValue(_) => {
+                                    let uint_array: Vec<u64> = records[idx].iter().map(|col| {
+                                        match col.data {
+                                            Some(Data::UintValue(value)) => value,
+                                            _ => 0,
+                                        }
+                                    }).collect();
+                                    Arc::new(arrow::array::UInt64Array::from(uint_array)) as Arc<dyn arrow::array::Array>
+                                },
+                                Data::BoolValue(_) => {
+                                    let bool_array: Vec<bool> = records[idx].iter().map(|col| {
+                                        match col.data {
+                                            Some(Data::BoolValue(value)) => value,
+                                            _ => false,
+                                        }
+                                    }).collect();
+                                    Arc::new(arrow::array::BooleanArray::from(bool_array)) as Arc<dyn arrow::array::Array>
+                            },
+                        }
+                    }
+                    , None => {
+                        // this is unlikely
+                        panic!("no data in the column");
+                    }
+
+                
+                };
+                arrays.push(array);
+                
+            }
+
+            // for 7th column, we should create a array with single value, which is the number of missing records
+            let mut missing_records_array = arrow::array::UInt64Array::from(vec![Some(missing_records)]);
+            arrays.push(Arc::new(missing_records_array) as Arc<dyn arrow::array::Array>);
+            let record_batch = RecordBatch::try_new(Arc::new(schema), arrays).unwrap();
+            output[0].send(ChannelData::new(record_batch)).await?;
+                
+        };
+        
+        
+        
+    }
+        Ok(())
+   }
+}
 
 // next step is the organizer
 // we should have a site to organize the pipeline
@@ -171,7 +323,7 @@ mod tests {
     #[test]
     async fn test_channel() {
         let (tx, mut rx) = create_channel(10);
-        for i in 1..=10 {
+        for _ in 1..=10 {
             tx.send(ChannelData::new(AggTradeData {
                 symbol: "BTCUSDT".to_string(),
                 price: 100.0,
