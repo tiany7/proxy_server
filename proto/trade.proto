@@ -31,11 +31,20 @@ message GetHeartbeatResponse {
     // could possibly add other message here
 }
 
+message GetMarketDataRequest {
+    string symbol = 1;
+}
+
+message GetMarketDataResponse {
+    bytes data = 1;
+}
+
 
 
 service Trade{
     rpc GetAggTradeStream(GetAggTradeRequest) returns (stream GetAggTradeResponse);
     rpc GetClientHeartbeat(stream GetHeartbeatRequest) returns (stream GetHeartbeatResponse);
+    rpc GetMarketDataStream(GetMarketDataRequest) returns (stream GetMarketDataResponse);
 }
 
 

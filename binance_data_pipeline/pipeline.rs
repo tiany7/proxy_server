@@ -1,7 +1,9 @@
+use core::num;
 use std::convert::{TryFrom, TryInto};
 use std::vec::Vec;
 use std::any::Any;
 use std::sync::Arc;
+use std::io::Write;
 
 use arrow::datatypes::Schema;
 use tokio::sync::mpsc;
@@ -61,6 +63,12 @@ impl Into<Column> for ChannelData {
     }
 }
 
+impl Into<Vec<u8>> for ChannelData {
+    fn into(self) -> Vec<u8> {
+        *self.0.downcast::<Vec<u8>>().unwrap()
+    }
+}
+
 
 
 
@@ -72,24 +80,112 @@ pub fn create_channel(capacity: usize) -> (mpsc::Sender<ChannelData>, mpsc::Rece
 
 pub trait Transformer {
     // this is blocking
-    async fn transform(&self, input: Vec<mpsc::Receiver<ChannelData>>, output: Vec<mpsc::Sender<ChannelData>>) -> Result<()>;
+    async fn transform(&mut self) -> Result<()>;
 }
 
 
 // transformers start here
-pub struct SampleTransformer;
-pub struct AggTradeDataTransformer;
-pub struct SplitColumnTransformer;
+pub struct SampleTransformer {
+    input: Vec<mpsc::Receiver<ChannelData>>,
+    output: Vec<mpsc::Sender<ChannelData>>,
+}
+pub struct AggTradeDataTransformer {
+    input: Vec<mpsc::Receiver<ChannelData>>,
+    output: Vec<mpsc::Sender<ChannelData>>,
+}
+pub struct SplitColumnTransformer {
+    input: Vec<mpsc::Receiver<ChannelData>>,
+    output: Vec<mpsc::Sender<ChannelData>>,
+}
 pub struct CollectColumnTransformer {
     // in milliseconds, this is used to control the granularity of the data
+    input: Vec<mpsc::Receiver<ChannelData>>,
+    output: Vec<mpsc::Sender<ChannelData>>,
     granularity: chrono::Duration,
 }
 
+// this is used to synethize the bar data from the raw data
+pub struct ResamplingTransformer {
+    // in milliseconds, this is used to control the granularity of the data
+    input: Vec<mpsc::Receiver<ChannelData>>,
+    output: Vec<mpsc::Sender<ChannelData>>,
+    granularity: chrono::Duration,
+}
+
+pub struct CompressionTransformer {
+    // in milliseconds, this is used to control the granularity of the data
+    input: Vec<mpsc::Receiver<ChannelData>>,
+    output: Vec<mpsc::Sender<ChannelData>>,
+}
+impl SampleTransformer {
+    #[allow(dead_code)]
+    pub fn new(input: Vec<mpsc::Receiver<ChannelData>>, output: Vec<mpsc::Sender<ChannelData>>) -> Self {
+        SampleTransformer {
+            input,
+            output,
+        }
+    }
+}   
+
+impl AggTradeDataTransformer {
+    #[allow(dead_code)]
+    pub fn new(input: Vec<mpsc::Receiver<ChannelData>>, output: Vec<mpsc::Sender<ChannelData>>) -> Self {
+        AggTradeDataTransformer {
+            input,
+            output,
+        }
+    }
+}
+
+impl SplitColumnTransformer {
+    #[allow(dead_code)]
+    pub fn new(input: Vec<mpsc::Receiver<ChannelData>>, output: Vec<mpsc::Sender<ChannelData>>) -> Self {
+        SplitColumnTransformer {
+            input,
+            output,
+        }
+    }
+}
+
+impl CollectColumnTransformer {
+    #[allow(dead_code)]
+    pub fn new(input: Vec<mpsc::Receiver<ChannelData>>, output: Vec<mpsc::Sender<ChannelData>>, granularity: chrono::Duration) -> Self {
+        CollectColumnTransformer {
+            input,
+            output,
+            granularity,
+        }
+    }
+}
+
+impl ResamplingTransformer {
+    #[allow(dead_code)]
+    pub fn new(input: Vec<mpsc::Receiver<ChannelData>>, output: Vec<mpsc::Sender<ChannelData>>, granularity: chrono::Duration) -> Self {
+        ResamplingTransformer {
+            input,
+            output,
+            granularity,
+        }
+    }
+}
+
+impl CompressionTransformer {
+    #[allow(dead_code)]
+    pub fn new(input: Vec<mpsc::Receiver<ChannelData>>, output: Vec<mpsc::Sender<ChannelData>>) -> Self {
+        CompressionTransformer {
+            input,
+            output,
+        }
+    }
+}
+
+
+
 impl Transformer for SampleTransformer {
-    async fn transform(&self, mut input: Vec<mpsc::Receiver<ChannelData>>, mut output: Vec<mpsc::Sender<ChannelData>>) -> Result<()> {
-        while let Some(data) = input[0].recv().await {
+    async fn transform(&mut self) -> Result<()> {
+        while let Some(data) = self.input[0].recv().await {
             let data : SampleData = data.into();
-            output[0].send(ChannelData::new(data)).await.unwrap();
+            self.output[0].send(ChannelData::new(data)).await.unwrap();
         }
         Ok(())
     }
@@ -99,11 +195,11 @@ impl Transformer for SampleTransformer {
 
 
 impl Transformer for AggTradeDataTransformer {
-    async fn transform(&self, mut input: Vec<mpsc::Receiver<ChannelData>>, output: Vec<mpsc::Sender<ChannelData>>) -> Result<()> {
+    async fn transform(&mut self) -> Result<()> {
         // might do something here
-        while let Some(data) = input[0].recv().await {
+        while let Some(data) = self.input[0].recv().await {
             let data : AggTradeData = data.into();
-            output[0].send(ChannelData::new(data)).await.unwrap();
+            self.output[0].send(ChannelData::new(data)).await.unwrap();
         }
         Ok(())
     }
@@ -114,12 +210,12 @@ impl Transformer for AggTradeDataTransformer {
 
 
 impl Transformer for SplitColumnTransformer {
-    async fn transform(&self, mut input: Vec<mpsc::Receiver<ChannelData>>, output: Vec<mpsc::Sender<ChannelData>>) -> Result<()> {
-        assert_eq!(input.len(), 1);
-        assert_eq!(output.len(), 9);
+    async fn transform(&mut self) -> Result<()> {
+        assert_eq!(self.input.len(), 1);
+        assert_eq!(self.output.len(), 9);
 
         
-        while let Some(data) = input[0].recv().await {
+        while let Some(data) = self.input[0].recv().await {
             let data : AggTradeData = data.into();
             let mut symbol_col = Column::default();
             symbol_col.column_name = "symbol".to_string();
@@ -158,15 +254,15 @@ impl Transformer for SplitColumnTransformer {
             // event_type_col.column_name = "event_type".to_string();
             // event_type_col.data = Some(Data::StringValue(data.event_type));
 
-            output[0].send(ChannelData::new(symbol_col)).await?;
-            output[1].send(ChannelData::new(is_buyer_maker_col)).await?;
-            output[2].send(ChannelData::new(price_col)).await?;
-            output[3].send(ChannelData::new(quantity_col)).await?;
-            output[4].send(ChannelData::new(trade_time_col)).await?;
-            // output[5].send(ChannelData::new(first_break_trade_id_col)).await?;
-            // output[6].send(ChannelData::new(last_break_trade_id_col)).await?;
-            output[5].send(ChannelData::new(aggregated_trade_id_col)).await?;
-            // output[8].send(ChannelData::new(event_type_col)).await?;
+            self.output[0].send(ChannelData::new(symbol_col)).await?;
+            self.output[1].send(ChannelData::new(is_buyer_maker_col)).await?;
+            self.output[2].send(ChannelData::new(price_col)).await?;
+            self.output[3].send(ChannelData::new(quantity_col)).await?;
+            self.output[4].send(ChannelData::new(trade_time_col)).await?;
+            // self.output[5].send(ChannelData::new(first_break_trade_id_col)).await?;
+            // self.output[6].send(ChannelData::new(last_break_trade_id_col)).await?;
+            self.output[5].send(ChannelData::new(aggregated_trade_id_col)).await?;
+            // self.output[8].send(ChannelData::new(event_type_col)).await?;
 
         }
         Ok(())
@@ -175,8 +271,9 @@ impl Transformer for SplitColumnTransformer {
 
 
 // this is to collect the columns
+// this will be used to collect the raw data
 impl Transformer for CollectColumnTransformer {
-    async fn transform(&self, mut input: Vec<mpsc::Receiver<ChannelData>>, output: Vec<mpsc::Sender<ChannelData>>) -> Result<()> {
+    async fn transform(&mut self) -> Result<()> {
         let mut records: Vec<Vec<Column>> = Vec::new();
         records.resize(7, Vec::new());
         // create a timestamp option
@@ -188,7 +285,7 @@ impl Transformer for CollectColumnTransformer {
         loop {
             // if one of the input is closed, we should close exit the propagate the error
             for idx in 0..6 {
-                match input[idx].recv().await {
+                match self.input[idx].recv().await {
                     Some(data) => {
                         let data: Column = data.into();
                         records[idx].push(data);
@@ -248,8 +345,8 @@ impl Transformer for CollectColumnTransformer {
                             match column {
                                 Data::StringValue(_) => {
                                     // obtain a rust string array
-                                    let mut string_array: Vec<String> = records[idx].iter().map(|col| {
-                                        match col.data {
+                                    let string_array: Vec<String> = records[idx].iter().map(|col| {
+                                        match col.data.clone() {
                                             Some(Data::StringValue(value)) => value,
                                             _ => "null".to_string(),
                                         }
@@ -258,7 +355,7 @@ impl Transformer for CollectColumnTransformer {
                                 },
                                 Data::DoubleValue(_) => {
                                     // we should create a double array
-                                    let mut double_array : Vec<f64> = records[idx].iter().map(|col| {
+                                    let double_array : Vec<f64> = records[idx].iter().map(|col| {
                                         match col.data {
                                             Some(Data::DoubleValue(value)) => value,
                                             _ => 0.0,
@@ -298,10 +395,10 @@ impl Transformer for CollectColumnTransformer {
             }
 
             // for 7th column, we should create a array with single value, which is the number of missing records
-            let mut missing_records_array = arrow::array::UInt64Array::from(vec![Some(missing_records)]);
+            let missing_records_array = arrow::array::UInt64Array::from(vec![Some(missing_records)]);
             arrays.push(Arc::new(missing_records_array) as Arc<dyn arrow::array::Array>);
             let record_batch = RecordBatch::try_new(Arc::new(schema), arrays).unwrap();
-            output[0].send(ChannelData::new(record_batch)).await?;
+            self.output[0].send(ChannelData::new(record_batch)).await?;
                 
         };
         
@@ -312,8 +409,191 @@ impl Transformer for CollectColumnTransformer {
    }
 }
 
-// next step is the organizer
-// we should have a site to organize the pipeline
+
+impl Transformer for ResamplingTransformer {
+    
+    async fn transform(&mut self) -> Result<()> {
+        // this is the schema of the record batch
+        let schema = Schema::new(vec![
+            Field::new("Open", DataType::Float64, false),
+            Field::new("High", DataType::Boolean, false),
+            Field::new("Low", DataType::Float64, false),
+            Field::new("Close", DataType::Float64, false),
+            Field::new("Volume", DataType::Float64, false),
+            Field::new("Quote_asset_volume", DataType::Float64, false),
+            Field::new("Number_of_trades", DataType::UInt32, false),
+            Field::new("Taker_buy_base_asset_volume", DataType::Float64, false),
+            Field::new("Taker_buy_quote_asset_volume", DataType::Float64, false),
+            Field::new("Min_id", DataType::UInt64, false),
+            Field::new("Max_id", DataType::UInt64, false),
+            Field::new("Missing_count", DataType::UInt32, false), 
+            Field::new("Open_time", DataType::UInt64, false), 
+            Field::new("Close_time", DataType::UInt64, false), 
+        ]);
+
+        let mut low_price = f64::MAX;
+        let mut high_price = f64::MIN;
+        let mut open_price = 0.0;
+        let mut close_price = 0.0;
+        let mut volume = 0.0;
+        let mut quote_asset_volume = 0.0;
+        let mut number_of_trades = 0;
+        let mut taker_buy_base_asset_volume = 0.0;
+        let mut taker_buy_quote_asset_volume = 0.0;
+        let mut min_id = 0;
+        let mut max_id = 0;
+        let mut missing_count = 0;
+        let mut open_time = 0;
+        let mut close_time = 0;
+
+        let mut last: Option<u64> = None;
+        let this_time_gap = self.granularity.num_milliseconds() as u64;
+        
+
+        loop {
+            let agg_trade = self.input[0].recv().await;
+            if agg_trade.is_none() {
+                break;
+            }
+            let agg_trade: AggTradeData = agg_trade.unwrap().into();
+            
+            // count number of trades
+            number_of_trades += 1;
+
+            // update the min_id and max_id
+            if last.is_some() {
+                missing_count += agg_trade.aggregated_trade_id - last.unwrap() - 1; 
+            }
+
+            last = Some(agg_trade.aggregated_trade_id);
+
+            assert!(missing_count >= 0);
+
+            if agg_trade.price < low_price {
+                low_price = agg_trade.price;
+                min_id = agg_trade.aggregated_trade_id;
+            }
+
+            if agg_trade.price > high_price {
+                high_price = agg_trade.price;
+                max_id = agg_trade.aggregated_trade_id;
+            }
+
+            if number_of_trades == 1 {
+                open_price = agg_trade.price;
+                open_time = agg_trade.trade_time;
+            }
+
+            volume += agg_trade.quantity;
+            quote_asset_volume += agg_trade.price;
+
+            taker_buy_base_asset_volume += {
+                if !agg_trade.is_buyer_maker {
+                    agg_trade.quantity
+                } else {
+                    0.0
+                }
+            };
+
+            taker_buy_quote_asset_volume += {
+                if !agg_trade.is_buyer_maker {
+                    agg_trade.price
+                } else {
+                    0.0
+                }
+            };
+
+            // check granularity
+            if agg_trade.trade_time - open_time >= this_time_gap {
+                close_price = agg_trade.price;
+                close_time = agg_trade.trade_time;
+                let arrays: Vec<Arc<dyn arrow::array::Array>> = vec![
+                    Arc::new(Float64Array::from(vec![open_price])),
+                    Arc::new(Float64Array::from(vec![high_price])),
+                    Arc::new(Float64Array::from(vec![low_price])),
+                    Arc::new(Float64Array::from(vec![close_price])),
+                    Arc::new(Float64Array::from(vec![volume])),
+                    Arc::new(Float64Array::from(vec![quote_asset_volume])),
+                    Arc::new(arrow::array::UInt32Array::from(vec![number_of_trades as u32])),
+                    Arc::new(Float64Array::from(vec![taker_buy_base_asset_volume])),
+                    Arc::new(Float64Array::from(vec![taker_buy_quote_asset_volume])),
+                    Arc::new(arrow::array::UInt64Array::from(vec![min_id])),
+                    Arc::new(arrow::array::UInt64Array::from(vec![max_id])),
+                    Arc::new(arrow::array::UInt32Array::from(vec![missing_count as u32])),
+                    Arc::new(arrow::array::UInt64Array::from(vec![open_time])),
+                    Arc::new(arrow::array::UInt64Array::from(vec![close_time])),
+                ];
+                let record_batch = RecordBatch::try_new(Arc::new(schema.clone()), arrays).unwrap();
+                self.output[0].send(ChannelData::new(record_batch)).await?;
+
+                // reset the variables
+                low_price = f64::MAX;
+                high_price = f64::MIN;
+                open_price = 0.0;
+                close_price = 0.0;
+                volume = 0.0;
+                quote_asset_volume = 0.0;
+                number_of_trades = 0;
+                taker_buy_base_asset_volume = 0.0;
+                taker_buy_quote_asset_volume = 0.0;
+                min_id = 0;
+                max_id = 0;
+                missing_count = 0;
+                open_time = 0;
+                close_time = 0;
+            }
+        }
+
+
+        Ok(())
+    }
+        
+}
+
+impl Transformer for CompressionTransformer {
+    async fn transform(&mut self) -> Result<()> {
+        let record_batch: RecordBatch = self.input[0].recv().await.unwrap().into();
+        let mut buffer = Vec::new();
+        let mut writer = arrow::ipc::writer::StreamWriter::try_new(&mut buffer, &record_batch.schema()).ok()?;
+        writer.write(&record_batch).ok()?;
+    
+        // Compress the serialized data using lz4
+        let mut encoder = lz4::EncoderBuilder::new()
+            .block_mode(lz4::BlockMode::Linked)
+            .build(Vec::new())
+            .unwrap();
+        let (first_part, second_part) = buffer.split_at(buffer.len());
+        encoder.write_all(first_part).unwrap();
+        encoder.write_all(second_part).unwrap();
+        let (result, _) = encoder.finish();
+        self.output[0].send(ChannelData::new(result)).await.unwrap();
+        Ok(())
+    }
+}
+
+impl dyn Transformer {
+    async fn transform_dyn(&mut self) -> Result<()> {
+        self.transform().await
+    }
+}
+
+// pipelines start here
+pub struct ResamplingPipeline {
+    pub transformers: Vec<Box<dyn Transformer>>,
+}
+
+impl ResamplingPipeline {
+    pub fn new() -> Self {
+        ResamplingPipeline {
+            transformers: Vec::new(),
+        }
+    }
+
+    pub fn add_transformer(&mut self, transformer: Box<dyn Transformer>) -> &mut Self {
+        self.transformers.push(transformer);
+        self
+    }
+}
 #[cfg(test)]
 mod tests {
     use std::io::Split;
@@ -361,7 +641,10 @@ mod tests {
         let (tx, mut rx) = create_channel(10);
         let (tx2, mut rx2) = create_channel(10);
 
-        let sample_transformer = SampleTransformer {};
+        let mut sample_transformer = SampleTransformer {
+            input: vec![rx],
+            output: vec![tx2],
+        };
         for _ in 1..=10 {
             tx.send(ChannelData::new(SampleData {
                 name: "test".to_string(),
@@ -369,7 +652,7 @@ mod tests {
             })).await.unwrap();
         }
         drop(tx);
-        sample_transformer.transform(vec![rx], vec![tx2]).await.unwrap();
+        sample_transformer.transform().await.unwrap();
         for _ in 1..=10 {
             let data = rx2.recv().await;
             if data.is_none() {
@@ -398,7 +681,7 @@ mod tests {
         let (tx9, mut rx9) = create_channel(10);
         let (tx10, mut rx10) = create_channel(10);
 
-        let split_column_transformer = SplitColumnTransformer {};
+        
 
         for _ in 1..=10 {
             tx.send(ChannelData::new(AggTradeData {
@@ -414,8 +697,11 @@ mod tests {
             })).await.unwrap();
         }
         drop(tx);
-        let trans = SplitColumnTransformer{};
-        trans.transform(vec![rx], vec![tx2, tx3, tx4, tx5, tx6, tx7, tx8, tx9, tx10]).await.unwrap();
+        let mut split_column_transformer = SplitColumnTransformer {
+            input: vec![rx],
+            output: vec![tx2, tx3, tx4, tx5, tx6, tx7, tx8, tx9, tx10],
+        };
+        split_column_transformer.transform().await.unwrap();
         for _ in 1..=10 {
             let symbol = rx2.recv().await.unwrap();
             let symbol: Column = symbol.into();

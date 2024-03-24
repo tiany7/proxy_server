@@ -1,0 +1,3 @@
+
+[dependencies]
+pipeline = {path = "../binance_data_pipeline" }
