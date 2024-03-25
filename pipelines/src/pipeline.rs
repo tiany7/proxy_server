@@ -4,27 +4,32 @@ use std::vec::Vec;
 use std::any::Any;
 use std::sync::Arc;
 use std::io::Write;
+use std::future::Future;
 
+use futures::FutureExt;
 use arrow::datatypes::Schema;
 use tokio::sync::mpsc;
 use anyhow::{Result,Error};
-use trade::{Column, AggTradeData};
+use async_trait::async_trait;
 use arrow::record_batch::RecordBatch;
 use arrow::datatypes::{DataType, Field};
 use arrow::array::{ArrayRef, Float64Array, StringArray};
 
-use crate::pipeline::trade::column::Data;
+use crate::trade::column::Data;
+use crate::trade::AggTradeData;
+use crate::trade::Column;
+
 
 // 定义一个动态数据类型
 type DynData = Box<dyn Any + Send + Sync>;
 
-pub mod trade {
-    tonic::include_proto!("trade");
-}
-
 // 定义一个数据结构，包装了动态数据
 pub struct ChannelData(DynData);
 
+
+pub mod trade {
+    include!(concat!(env!("OUT_DIR"), "/trade.rs"));
+}
 
 struct SampleData {
     name: String,
@@ -77,7 +82,7 @@ pub fn create_channel(capacity: usize) -> (mpsc::Sender<ChannelData>, mpsc::Rece
     (tx, rx)
 }
 
-
+#[async_trait]
 pub trait Transformer {
     // this is blocking
     async fn transform(&mut self) -> Result<()>;
@@ -554,9 +559,9 @@ impl Transformer for CompressionTransformer {
     async fn transform(&mut self) -> Result<()> {
         let record_batch: RecordBatch = self.input[0].recv().await.unwrap().into();
         let mut buffer = Vec::new();
-        let mut writer = arrow::ipc::writer::StreamWriter::try_new(&mut buffer, &record_batch.schema()).ok()?;
-        writer.write(&record_batch).ok()?;
-    
+        let mut writer = arrow::ipc::writer::StreamWriter::try_new(&mut buffer, &record_batch.schema()).ok().expect("writer error");
+        writer.write(&record_batch).ok().expect( "write error");
+        writer.finish().ok().expect("finish error");
         // Compress the serialized data using lz4
         let mut encoder = lz4::EncoderBuilder::new()
             .block_mode(lz4::BlockMode::Linked)
@@ -571,27 +576,25 @@ impl Transformer for CompressionTransformer {
     }
 }
 
-impl dyn Transformer {
-    async fn transform_dyn(&mut self) -> Result<()> {
-        self.transform().await
-    }
-}
+
+
 
 // pipelines start here
+
+
+// TODO: make dynamic dispatch work, this is not very safe
 pub struct ResamplingPipeline {
-    pub transformers: Vec<Box<dyn Transformer>>,
+
 }
 
 impl ResamplingPipeline {
     pub fn new() -> Self {
         ResamplingPipeline {
-            transformers: Vec::new(),
         }
     }
 
-    pub fn add_transformer(&mut self, transformer: Box<dyn Transformer>) -> &mut Self {
-        self.transformers.push(transformer);
-        self
+    pub fn launch_transformer(&mut self, mut transformer: &dyn Transformer) -> Box<dyn Future<Output = Result<()>>> {
+        Box::new(transformer.transform())
     }
 }
 #[cfg(test)]

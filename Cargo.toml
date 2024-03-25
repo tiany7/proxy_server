@@ -27,6 +27,7 @@ rust_decimal = "1.10.0"
 clap = "3.0"
 arrow = "5.0.0"
 lz4 = "1.23.1"
+async-trait = "0.1.52"
 
 
 
@@ -36,28 +37,23 @@ tonic-build = "0.11"
 
 
 
-[[bin]]
-name = "websocket_server"
-path = "binance_data/websocket.rs"
 
-[[bin]]
-name = "binance_client"
-path = "client/binance_client.rs"
-
-[[bin]]
-name = "binance_server"
-path = "binance_data/binance_grpc_server.rs"
-
-[[bin]]
-name = "pipeline_server"
-path = "binance_data_pipeline/pipeline_main.rs"
 
 
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.8"
 
+[workspace]
 
 members = [
-    "binance_data",
-    "binance_data_pipeline",
+    "binance_data_server", "pipelines",
 ]
+
+
+[[bin]]
+name = "data_server"
+path = "binance_data_server/src/binance_grpc_server.rs"
+
+[lib]
+name = "pipeline_utils"
+path = "pipelines/src/pipeline.rs"

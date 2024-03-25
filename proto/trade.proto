@@ -44,7 +44,7 @@ message GetMarketDataResponse {
 service Trade{
     rpc GetAggTradeStream(GetAggTradeRequest) returns (stream GetAggTradeResponse);
     rpc GetClientHeartbeat(stream GetHeartbeatRequest) returns (stream GetHeartbeatResponse);
-    rpc GetMarketDataStream(GetMarketDataRequest) returns (stream GetMarketDataResponse);
+    rpc GetMarketData(GetMarketDataRequest) returns (stream GetMarketDataResponse);
 }
 
 
