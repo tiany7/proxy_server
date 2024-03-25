@@ -52,8 +52,8 @@ members = [
 
 [[bin]]
 name = "data_server"
-path = "binance_data_server/src/binance_grpc_server.rs"
+path = "./binance_data_server/src/binance_grpc_server.rs"
 
 [lib]
-name = "pipeline_utils"
-path = "pipelines/src/pipeline.rs"
+name = "pipelines"
+path = "./pipelines/src/pipelines.rs"

@@ -7,6 +7,7 @@ use std::io::BufReader;
 
 
 use binance_async::websocket::usdm::WebsocketMessage::AggregateTrade;
+use pipeline_utils::Transformer;
 use tokio::sync::{mpsc, Mutex};
 use tonic::{transport::Server, Request, Response, Status};
 use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
@@ -15,6 +16,7 @@ use trade::trade_server::{Trade, TradeServer};
 use rust_decimal::{prelude::ToPrimitive}; // Import the Decimal type
 use serde_yaml;
 use async_stream::try_stream;
+use arrow::record_batch::RecordBatch;
 
 
 
@@ -31,6 +33,7 @@ pub struct TradeService {
     config: websocket_manager::BinanceServerConfig,
     binance_mgr: Arc<Mutex<websocket_manager::BinanceWebsocketManager>>,
 }
+
 
 
 #[tonic::async_trait]
@@ -118,41 +121,33 @@ impl Trade for TradeService {
         
         let binance_mgr_clone = self.binance_mgr.clone();
         let requested_symbol = request.into_inner().symbol;
+        // let (agg_tx, agg_rx) = mpsc::channel(self.config.default_buffer_size);
+        let (resample_tx, resample_rx) = mpsc::channel(self.config.default_buffer_size);
+        let (convert_tx, convert_rx) = mpsc::channel(self.config.default_buffer_size);
+        let mut trans = pipeline_utils::ResamplingTransformer::new(vec![resample_rx], vec![convert_tx], chrono::Duration::seconds(1));
+        let _ = trans.transform();
         tokio::spawn(async move {
             let binance_mgr = binance_mgr_clone.lock().await;
             let mut ws = binance_mgr.subscribe(websocket_manager::BinanceWebsocketOption::AggTrade(requested_symbol))
                 .await
                 .unwrap();
-
             // leave this scope to avoid deadlock
             drop(binance_mgr);
-            while let Some(msg) = ws.recv().await {
-                match msg {
-                    AggregateTrade(msg) => {
-                        let inner = AggTradeData {
-                            symbol: msg.symbol,
-                            price: msg.price.to_f64().unwrap(),
-                            quantity: msg.qty.to_f64().unwrap(),
-                            trade_time: msg.event_time,
-                            event_type: msg.event_type,
-                            is_buyer_maker: msg.is_buyer_maker,
-                            first_break_trade_id: msg.first_break_trade_id,
-                            last_break_trade_id: msg.last_break_trade_id,
-                            aggregated_trade_id: msg.aggregated_trade_id,
-                        };
-                        let response = GetAggTradeResponse {
-                            data: Some(inner),
-                        };
-                        tx.send(Ok(response)).await.map_err(|e| Status::internal(e.to_string())).unwrap();
-                    }
-                    _ => {
-                        tx.send(Err(Status::invalid_argument("mismatched type[type != aggTrade]")))
-                            .await
-                            .map_err(|e| Status::internal(e.to_string())).unwrap();
-                    }
-                    
-                }
-                
+            while let Some(AggregateTrade(msg)) = ws.recv().await {
+                let agg_trade = AggTradeData {
+                    symbol: msg.symbol,
+                    price: msg.price.to_f64().unwrap(),
+                    quantity: msg.qty.to_f64().unwrap(),
+                    trade_time: msg.event_time,
+                    event_type: msg.event_type,
+                    is_buyer_maker: msg.is_buyer_maker,
+                    first_break_trade_id: msg.first_break_trade_id,
+                    last_break_trade_id: msg.last_break_trade_id,
+                    aggregated_trade_id: msg.aggregated_trade_id,
+                };
+                resample_tx.send(pipeline_utils::ChannelData::new(agg_trade)).await.unwrap();
+                let resampled_data = convert_rx.recv().await.unwrap();
+                let resampled_data: RecordBatch = resampled_data.into();
                 
             }
         });

@@ -1,5 +1,5 @@
 [package]
-name = "pipelines"
+name = "pipeline"
 version = "0.1.0"
 edition = "2021"
 
@@ -23,4 +23,5 @@ anyhow = "1.0"
 async-trait = "0.1.52"
 
 [lib]
-path = "src/pipeline.rs"
+name = "pipelines"
+path = "./src/pipelines.rs"
