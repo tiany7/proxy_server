@@ -1,5 +1,12 @@
-
-fn main() {
-    tonic_build::compile_protos("proto/trade.proto")
-        .unwrap_or_else(|e| panic!("Failed to compile protos {:?}", e));
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    tonic_build::configure()
+        .build_server(true)
+        .out_dir("./proto/generated_code")
+        .compile(
+            &[
+                "proto/trade.proto",
+            ],
+            &["proto"],
+        )?;
+    Ok(())
 }

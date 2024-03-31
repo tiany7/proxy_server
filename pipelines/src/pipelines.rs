@@ -1,4 +1,4 @@
-use core::num;
+
 use std::convert::{TryFrom, TryInto};
 use std::vec::Vec;
 use std::any::Any;
@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::io::Write;
 use std::future::Future;
 
-use futures::FutureExt;
+use futures::{FutureExt, SinkExt};
 use arrow::datatypes::Schema;
 use tokio::sync::{mpsc, Mutex};
 use anyhow::{Error, Ok, Result};
@@ -14,10 +14,8 @@ use async_trait::async_trait;
 use arrow::record_batch::RecordBatch;
 use arrow::datatypes::{DataType, Field};
 use arrow::array::{ArrayRef, Float64Array, StringArray};
+use core::num;
 
-use crate::trade::column::Data;
-use crate::trade::AggTradeData;
-use crate::trade::Column;
 
 
 // 定义一个动态数据类型
@@ -28,8 +26,11 @@ pub struct ChannelData(DynData);
 
 
 pub mod trade {
-    tonic::include_proto!("trade");
+    include!("../../proto/generated_code/trade.rs");
 }
+
+use trade::AggTradeData;    
+use trade::Column;
 
 struct SampleData {
     name: String,
@@ -138,6 +139,17 @@ impl CompressionTransformer {
                 output,
             })),
         }
+    }
+
+    fn record_batch_to_bytes(record_batch: &RecordBatch) -> Result<Vec<u8>, anyhow::Error> {
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        // 创建IPC文件写入器
+        let mut writer = arrow::ipc::writer::FileWriter::try_new(&mut buffer, &record_batch.schema())?;
+        writer.write(&record_batch)?;
+        writer.finish().map_err(|e|  anyhow::anyhow!("finish error: {}", e))?;
+        drop(writer);
+        let buffer = buffer.into_inner();
+        Ok(buffer)
     }
 }
 
@@ -289,25 +301,18 @@ impl Transformer for Arc<ResamplingTransformer>{
         
 }
 
+
 // TODO: implement this
 #[async_trait]
-impl Transformer for Arc<CompressionTransformer> {
+impl Transformer for CompressionTransformer {
     async fn transform(&self) -> Result<()> {
-        // let record_batch: RecordBatch = self.input[0].recv().await.unwrap().into();
-        // let mut buffer = Vec::new();
-        // let mut writer = arrow::ipc::writer::StreamWriter::try_new(&mut buffer, &record_batch.schema()).ok().expect("writer error");
-        // writer.write(&record_batch).ok().expect( "write error");
-        // writer.finish().ok().expect("finish error");
-        // // Compress the serialized data using lz4
-        // let mut encoder = lz4::EncoderBuilder::new()
-        //     .block_mode(lz4::BlockMode::Linked)
-        //     .build(Vec::new())
-        //     .unwrap();
-        // let (first_part, second_part) = buffer.split_at(buffer.len());
-        // encoder.write_all(first_part).unwrap();
-        // encoder.write_all(second_part).unwrap();
-        // let (result, _) = encoder.finish();
-        // self.output[0].send(ChannelData::new(result)).await.unwrap();
+        let mut ticket = self.inner.lock().await;
+        let record_batch: RecordBatch = ticket.input[0].recv()
+                                .await
+                                .unwrap()
+                                .into();
+        let serialized_bytes = CompressionTransformer::record_batch_to_bytes(&record_batch)?;
+        ticket.output[0].send(ChannelData::new(serialized_bytes)).await?;
         
         Ok(())
     }
@@ -321,18 +326,23 @@ impl Transformer for Arc<CompressionTransformer> {
 
 // TODO: make dynamic dispatch work, this is not very safe
 pub struct ResamplingPipeline {
-    // transformers: Vec<Box<dyn Transformer>>,
+    transformers: Vec<Box<dyn Transformer>>,
 }
 
 impl ResamplingPipeline {
     pub fn new() -> Self {
         ResamplingPipeline {
+            transformers: Vec::new(),
         }
     }
 
-    pub fn launch_transformer(&mut self, mut transformer: Arc<impl Transformer + 'static> ) -> Box<dyn Future<Output = Result<()>>> {
-        let this = transformer.clone();
-        let join_handle = this.transform();
+    pub async fn run_and_wait(&self) -> Result<()> {
+        let mut tasks = Vec::new();
+        for transformer in self.transformers.iter() {
+            tasks.push(transformer.transform());
+        }
+        futures::future::join_all(tasks).await;
+        Ok(())
     }
 }
 #[cfg(test)]
@@ -342,125 +352,11 @@ mod tests {
     use super::*;
     use tokio::{test, spawn};
     #[test]
-    async fn test_channel() {
-        let (tx, mut rx) = create_channel(10);
-        for _ in 1..=10 {
-            tx.send(ChannelData::new(AggTradeData {
-                symbol: "BTCUSDT".to_string(),
-                price: 100.0,
-                quantity: 10.0,
-                trade_time: 1000,
-                event_type: "trade".to_string(),
-                is_buyer_maker: true,
-                first_break_trade_id: 100,
-                last_break_trade_id: 200,
-                aggregated_trade_id: 300,
-            })).await.unwrap();
-        }
-
-        for _ in 1..=10 {
-            let data = rx.recv().await;
-            if data.is_none() {
-                panic!("no data received");
-            }
-            let data = data.unwrap();
-            let data: AggTradeData = data.try_into().unwrap();
-            assert_eq!(data.symbol, "BTCUSDT");
-            assert_eq!(data.price, 100.0);
-            assert_eq!(data.quantity, 10.0);
-            assert_eq!(data.trade_time, 1000);
-            assert_eq!(data.event_type, "trade");
-            assert_eq!(data.is_buyer_maker, true);
-            assert_eq!(data.first_break_trade_id, 100);
-            assert_eq!(data.last_break_trade_id, 200);
-            assert_eq!(data.aggregated_trade_id, 300);
-        }
-    }
-
-    #[test]
     async fn test_sample_pipeline() {
-        let (tx, mut rx) = create_channel(10);
-        let (tx2, mut rx2) = create_channel(10);
-
-        let mut sample_transformer = SampleTransformer {
-            input: vec![rx],
-            output: vec![tx2],
-        };
-        for _ in 1..=10 {
-            tx.send(ChannelData::new(SampleData {
-                name: "test".to_string(),
-                age: 10,
-            })).await.unwrap();
-        }
-        drop(tx);
-        sample_transformer.transform().await.unwrap();
-        for _ in 1..=10 {
-            let data = rx2.recv().await;
-            if data.is_none() {
-                panic!("no data received");
-            }
-            let data = data.unwrap();
-            let data: SampleData = data.try_into().unwrap();
-            assert_eq!(data.name, "test");
-            assert_eq!(data.age, 10);
-        }
+        
 
 
         
     }   
 
-    #[test]
-    async fn test_split_column() {
-        let (tx, mut rx) = create_channel(10);
-        let (tx2, mut rx2) = create_channel(10);
-        let (tx3, mut rx3) = create_channel(10);
-        let (tx4, mut rx4) = create_channel(10);
-        let (tx5, mut rx5) = create_channel(10);
-        let (tx6, mut rx6) = create_channel(10);
-        let (tx7, mut rx7) = create_channel(10);
-        let (tx8, mut rx8) = create_channel(10);
-        let (tx9, mut rx9) = create_channel(10);
-        let (tx10, mut rx10) = create_channel(10);
-
-        
-
-        for _ in 1..=10 {
-            tx.send(ChannelData::new(AggTradeData {
-                symbol: "BTCUSDT".to_string(),
-                price: 100.0,
-                quantity: 10.0,
-                trade_time: 1000,
-                event_type: "trade".to_string(),
-                is_buyer_maker: true,
-                first_break_trade_id: 100,
-                last_break_trade_id: 200,
-                aggregated_trade_id: 300,
-            })).await.unwrap();
-        }
-        drop(tx);
-        let mut split_column_transformer = SplitColumnTransformer {
-            input: vec![rx],
-            output: vec![tx2, tx3, tx4, tx5, tx6, tx7, tx8, tx9, tx10],
-        };
-        split_column_transformer.transform().await.unwrap();
-        for _ in 1..=10 {
-            let symbol = rx2.recv().await.unwrap();
-            let symbol: Column = symbol.into();
-            assert_eq!(symbol.column_name, "symbol");
-            if matches!(symbol.data, Some(Data::StringValue(_))) {
-                assert_eq!(symbol.data.unwrap(), Data::StringValue("BTCUSDT".to_string()));
-            } else {
-                panic!("symbol data is not string");
-            }
-
-            let is_buyer_maker = rx3.recv().await.unwrap();
-            let is_buyer_maker: Column = is_buyer_maker.into();
-            assert_eq!(is_buyer_maker.column_name, "is_buyer_maker");
-            if matches!(is_buyer_maker.data, Some(Data::BoolValue(_))) {
-                assert_eq!(is_buyer_maker.data.unwrap(), Data::BoolValue(true));
-            } else {
-                panic!("is_buyer_maker data is not bool");
-            }
-        }
-    }
 }

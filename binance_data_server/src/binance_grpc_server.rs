@@ -1,5 +1,8 @@
 
 mod websocket_manager;
+pub mod trade {
+    include!("../../proto/generated_code/trade.rs");
+}
 use std::sync::Arc;
 use std::fs::File;
 use std::pin::Pin;
@@ -7,7 +10,7 @@ use std::io::BufReader;
 
 
 use binance_async::websocket::usdm::WebsocketMessage::AggregateTrade;
-use pipeline_utils::Transformer;
+use pipelines::Transformer;
 use tokio::sync::{mpsc, Mutex};
 use tonic::{transport::Server, Request, Response, Status};
 use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
@@ -20,12 +23,6 @@ use arrow::record_batch::RecordBatch;
 
 
 
-
-
-
-pub mod trade {
-    tonic::include_proto!("trade");
-}
 
 
 #[derive(Debug, Clone)]
@@ -120,12 +117,16 @@ impl Trade for TradeService {
         let (tx, rx) = mpsc::channel(self.config.default_buffer_size);
         
         let binance_mgr_clone = self.binance_mgr.clone();
-        let requested_symbol = request.into_inner().symbol;
-        // let (agg_tx, agg_rx) = mpsc::channel(self.config.default_buffer_size);
-        let (resample_tx, resample_rx) = mpsc::channel(self.config.default_buffer_size);
-        let (convert_tx, convert_rx) = mpsc::channel(self.config.default_buffer_size);
-        let mut trans = pipeline_utils::ResamplingTransformer::new(vec![resample_rx], vec![convert_tx], chrono::Duration::seconds(1));
-        let _ = trans.transform();
+        let request = request.into_inner();
+        let requested_symbol = request.symbol;
+        // this pipe passes data from the websocket to the resampling transformer
+        let (resample_tx, mut resample_rx) = mpsc::channel(self.config.default_buffer_size);
+        // this pipe passes data from the resampling transformer to the compressor transformer
+        let (compress_tx, mut compress_rx) = mpsc::channel(self.config.default_buffer_size);
+        // this pipe passes data from the compressor transformer to the grpc server's response
+        let (convert_tx, mut convert_rx) = mpsc::channel(self.config.default_buffer_size);
+        let mut resample_trans = pipelines::ResamplingTransformer::new(vec![resample_rx], vec![compress_tx], chrono::Duration::try_seconds(1).expect("Failed to create duration"));
+        let mut compressor_trans = pipelines::CompressionTransformer::new(vec![compress_rx], vec![convert_tx]);
         tokio::spawn(async move {
             let binance_mgr = binance_mgr_clone.lock().await;
             let mut ws = binance_mgr.subscribe(websocket_manager::BinanceWebsocketOption::AggTrade(requested_symbol))
@@ -145,10 +146,14 @@ impl Trade for TradeService {
                     last_break_trade_id: msg.last_break_trade_id,
                     aggregated_trade_id: msg.aggregated_trade_id,
                 };
-                resample_tx.send(pipeline_utils::ChannelData::new(agg_trade)).await.unwrap();
-                let resampled_data = convert_rx.recv().await.unwrap();
-                let resampled_data: RecordBatch = resampled_data.into();
-                
+                resample_tx.send(pipelines::ChannelData::new(agg_trade)).await.unwrap();
+                let compressed_data: Vec<u8> = convert_rx.recv().await
+                                                    .expect("Failed to receive compressed data")
+                                                    .into();
+                let response = GetMarketDataResponse {
+                    data: compressed_data,
+                };
+                tx.send(Ok(response)).await.map_err(|e| Status::internal(e.to_string())).unwrap();
             }
         });
         Ok(Response::new(ReceiverStream::new(rx)))
