@@ -157,13 +157,13 @@ impl CompressionTransformer {
 
 
 #[async_trait]
-impl Transformer for Arc<ResamplingTransformer>{
+impl Transformer for ResamplingTransformer {
     
     async fn transform(&self) -> Result<()> {
         // this is the schema of the record batch
         let schema = Schema::new(vec![
             Field::new("Open", DataType::Float64, false),
-            Field::new("High", DataType::Boolean, false),
+            Field::new("High", DataType::Float64, false),
             Field::new("Low", DataType::Float64, false),
             Field::new("Close", DataType::Float64, false),
             Field::new("Volume", DataType::Float64, false),
@@ -352,10 +352,48 @@ mod tests {
     use super::*;
     use tokio::{test, spawn};
     #[test]
-    async fn test_sample_pipeline() {
+    async fn test_pipeline_uncompress() {
+        let mut agg_trade = AggTradeData {
+            symbol: "BTCUSDT".to_string(),
+            aggregated_trade_id: 1,
+            price: 114514.0,
+            quantity: 1.0,
+            trade_time: 1000,
+            is_buyer_maker: false,
+            event_type : "trade".to_string(),
+            first_break_trade_id: 0,
+            last_break_trade_id: 0,
+        };
+        let mut agg_trade2 = AggTradeData{
+            symbol: "BTCUSDT".to_string(),
+            aggregated_trade_id: 2,
+            price: 1919810.0,
+            quantity: 1.0,
+            trade_time: 114514,
+            is_buyer_maker: false,
+            event_type : "trade".to_string(),
+            first_break_trade_id: 0,
+            last_break_trade_id: 0,
+        };
+
+        let (tx, rx) = create_channel(10);
+        let (tx2, mut rx2) = create_channel(10);
+        let resample_trans = ResamplingTransformer::new(vec![rx], vec![tx2], chrono::Duration::try_seconds(1).expect("Failed to create duration"));
         
+        let handle = tokio::spawn(async move {
+            let _ = resample_trans.transform().await;
+        });
+        tx.send(ChannelData::new(agg_trade)).await.unwrap();
+        tx.send(ChannelData::new(agg_trade2)).await.unwrap();
+        let data = rx2.recv().await.unwrap();
+        let data: RecordBatch = data.into();
+        assert_eq!(data.num_columns(), 14);
+        assert_eq!(data.num_rows(), 1);
+        println!("{:?}", data.schema());
 
-
+        let open = data.column(0).as_any().downcast_ref::<Float64Array>().unwrap();
+        assert_eq!(open.value(0), 114514.0);
+        println!("{:?}", open.value(0));
         
     }   
 

@@ -127,6 +127,12 @@ impl Trade for TradeService {
         let (convert_tx, mut convert_rx) = mpsc::channel(self.config.default_buffer_size);
         let mut resample_trans = pipelines::ResamplingTransformer::new(vec![resample_rx], vec![compress_tx], chrono::Duration::try_seconds(1).expect("Failed to create duration"));
         let mut compressor_trans = pipelines::CompressionTransformer::new(vec![compress_rx], vec![convert_tx]);
+        let _ = tokio::spawn(async move {
+            resample_trans.transform().await;
+        });
+        let _ = tokio::spawn(async move {
+            compressor_trans.transform().await;
+        });
         tokio::spawn(async move {
             let binance_mgr = binance_mgr_clone.lock().await;
             let mut ws = binance_mgr.subscribe(websocket_manager::BinanceWebsocketOption::AggTrade(requested_symbol))
@@ -187,6 +193,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let svc = TradeServer::new(market);
 
     Server::builder().add_service(svc).serve(addr).await?;
+
 
     Ok(())
 }
