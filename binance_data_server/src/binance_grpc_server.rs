@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::fs::File;
 use std::pin::Pin;
 use std::io::BufReader;
+use std::time::Duration;
 
 
 use binance_async::websocket::usdm::WebsocketMessage::AggregateTrade;
@@ -192,8 +193,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let svc = TradeServer::new(market);
 
-    Server::builder().add_service(svc).serve(addr).await?;
+    // new multi-threaded runtime
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(4)
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async move {
+            Server::builder()
+            .tcp_keepalive(Some(std::time::Duration::from_secs(10)))
+            .http2_keepalive_interval(Some(std::time::Duration::from_secs(10)))
+            .timeout(Duration::from_secs(6))
+            .add_service(svc).serve(addr).await.expect("Failed to start server");
+        });
 
 
     Ok(())
 }
+
+
