@@ -184,6 +184,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let reader = BufReader::new(file);
     
     let config :crate::websocket_manager::BinanceServerConfig = serde_yaml::from_reader(reader).expect("Unable to parse YAML");
+    let max_threads = config.max_threads.clone();
     let addr = format!("0.0.0.0:{}", config.port).parse().unwrap();
 
     let market = TradeService {
@@ -195,11 +196,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // new multi-threaded runtime
     tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(4)
+        .worker_threads(max_threads)
         .enable_all()
         .build()
         .unwrap()
-        .block_on(async move {
+        .block_on(move || {
             Server::builder()
             .tcp_keepalive(Some(std::time::Duration::from_secs(10)))
             .http2_keepalive_interval(Some(std::time::Duration::from_secs(10)))

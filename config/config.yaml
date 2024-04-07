@@ -1,6 +1,7 @@
 port: 8081
 default_queue_size: 100
 api_key: YOUR API KEY
+max_threads: 4
 
 
 
