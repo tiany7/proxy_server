@@ -24,6 +24,7 @@ class TradeClient:
         request = GetAggTradeRequest(symbol=symbol)
         response_stream = self.stub.GetAggTradeStream(request)
         for response in response_stream:
+            print(response)
             yield response
     def decode_bytestream(self, bytestream):
         return lz4.frame.decompress(bytestream)
@@ -35,17 +36,18 @@ class TradeClient:
     def get_market_data(self, symbol):
         request = GetAggTradeRequest(symbol=symbol)
         response_stream = self.stub.GetAggTradeStream(request)
+        print("response_stream", response_stream)
         for response in response_stream:
             byte_data = response.data
             decoded_byte_data = self.decode_bytestream(byte_data)
             rb = pa.get_arrow_batch_from_bytes(decoded_byte_data)
             yield rb
 if __name__ == '__main__':
-    client = TradeClient(host = "", port=10000)
+    client = TradeClient(host = "13.208.211.151", port=10000)
     print(client)
-    for trade in client.get_market_data('BTCUSDT'):
+    for trade in client.get_agg_trade_stream('BTCUSDT'):
         print(trade)
         # if you want to convert to pandas dataframe
-        df = trade.to_pandas()
-        print(df)
+        # df = trade.to_pandas()
+        # print(df)
     

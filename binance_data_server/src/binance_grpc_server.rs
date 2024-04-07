@@ -28,8 +28,7 @@ use arrow::record_batch::RecordBatch;
 
 #[derive(Debug, Clone)]
 pub struct TradeService {
-    config: websocket_manager::BinanceServerConfig,
-    binance_mgr: Arc<Mutex<websocket_manager::BinanceWebsocketManager>>,
+    pub config: Arc<Mutex<websocket_manager::BinanceServerConfig>>,
 }
 
 
@@ -42,18 +41,20 @@ impl Trade for TradeService {
         &self,
         request: Request<GetAggTradeRequest>,
     ) -> Result<Response<Self::GetAggTradeStreamStream>, Status> {
-        let (tx, rx) = mpsc::channel(self.config.default_buffer_size);
+        let this_config = self.config.clone();
+        let config_ticket = this_config.lock().await;
+        let this_config = config_ticket.clone();
+        drop(config_ticket);
+        let (tx, rx) = mpsc::channel(this_config.default_buffer_size);
         
-        let binance_mgr_clone = self.binance_mgr.clone();
         let requested_symbol = request.into_inner().symbol;
         tokio::spawn(async move {
-            let binance_mgr = binance_mgr_clone.lock().await;
+            
+            let binance_mgr = websocket_manager::BinanceWebsocketManager::new(this_config.clone()).await;
             let mut ws = binance_mgr.subscribe(websocket_manager::BinanceWebsocketOption::AggTrade(requested_symbol))
                 .await
                 .unwrap();
-
-            // leave this scope to avoid deadlock
-            drop(binance_mgr);
+            
             while let Some(msg) = ws.recv().await {
                 match msg {
                     AggregateTrade(msg) => {
@@ -115,17 +116,20 @@ impl Trade for TradeService {
         &self,
         request: Request<GetMarketDataRequest>,
     ) -> Result<Response<Self::GetMarketDataStream>, Status> {
-        let (tx, rx) = mpsc::channel(self.config.default_buffer_size);
+        let this_config = self.config.clone();
+        let config_ticket = this_config.lock().await;
+        let this_config = config_ticket.clone();
+        drop(config_ticket);
+        let (tx, rx) = mpsc::channel(this_config.default_buffer_size);
         
-        let binance_mgr_clone = self.binance_mgr.clone();
         let request = request.into_inner();
         let requested_symbol = request.symbol;
         // this pipe passes data from the websocket to the resampling transformer
-        let (resample_tx, mut resample_rx) = mpsc::channel(self.config.default_buffer_size);
+        let (resample_tx, mut resample_rx) = mpsc::channel(this_config.default_buffer_size);
         // this pipe passes data from the resampling transformer to the compressor transformer
-        let (compress_tx, mut compress_rx) = mpsc::channel(self.config.default_buffer_size);
+        let (compress_tx, mut compress_rx) = mpsc::channel(this_config.default_buffer_size);
         // this pipe passes data from the compressor transformer to the grpc server's response
-        let (convert_tx, mut convert_rx) = mpsc::channel(self.config.default_buffer_size);
+        let (convert_tx, mut convert_rx) = mpsc::channel(this_config.default_buffer_size);
         let mut resample_trans = pipelines::ResamplingTransformer::new(vec![resample_rx], vec![compress_tx], chrono::Duration::try_seconds(1).expect("Failed to create duration"));
         let mut compressor_trans = pipelines::CompressionTransformer::new(vec![compress_rx], vec![convert_tx]);
         let _ = tokio::spawn(async move {
@@ -134,13 +138,13 @@ impl Trade for TradeService {
         let _ = tokio::spawn(async move {
             compressor_trans.transform().await;
         });
-        tokio::spawn(async move {
-            let binance_mgr = binance_mgr_clone.lock().await;
-            let mut ws = binance_mgr.subscribe(websocket_manager::BinanceWebsocketOption::AggTrade(requested_symbol))
+
+        
+        let binance_mgr = websocket_manager::BinanceWebsocketManager::new(this_config.clone()).await;
+        let mut ws = binance_mgr.subscribe(websocket_manager::BinanceWebsocketOption::AggTrade(requested_symbol))
                 .await
                 .unwrap();
-            // leave this scope to avoid deadlock
-            drop(binance_mgr);
+        tokio::spawn(async move {
             while let Some(AggregateTrade(msg)) = ws.recv().await {
                 let agg_trade = AggTradeData {
                     symbol: msg.symbol,
@@ -167,8 +171,9 @@ impl Trade for TradeService {
     }
 }
 
-async fn start_server(addr: SocketAddr, service_inner: TradeService) {
-    let svc = TradeServer::new(market);
+async fn start_server(service_inner: TradeService, port: usize) {
+    let addr = format!("0.0.0.0:{}", port).parse().unwrap();
+    let svc = TradeServer::new(service_inner);
     Server::builder()
         .tcp_keepalive(Some(std::time::Duration::from_secs(10)))
         .http2_keepalive_interval(Some(std::time::Duration::from_secs(10)))
@@ -194,23 +199,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let reader = BufReader::new(file);
     
     let config :crate::websocket_manager::BinanceServerConfig = serde_yaml::from_reader(reader).expect("Unable to parse YAML");
-    let max_threads = config.max_threads.clone();
-    let addr = format!("0.0.0.0:{}", config.port).parse().unwrap();
-
+    // let max_threads = config.max_threads.clone();
+    let port = config.port.clone();
     let market = TradeService {
-        config: config.clone(),
-        binance_mgr: Arc::new(Mutex::new(websocket_manager::BinanceWebsocketManager::new(config).await)),
+        config: Arc::new(Mutex::new(config)),
     };
 
 
     // new multi-threaded runtime
-    tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(max_threads)
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(start_server(addr, market));
-
+    // tokio::runtime::Builder::new_multi_thread()
+    //     .worker_threads(max_threads)
+    //     .enable_all()
+    //     .build()
+    //     .unwrap()
+    //     .block_on(start_server(addr, market));
+    start_server(market, port).await;
 
     Ok(())
 }
