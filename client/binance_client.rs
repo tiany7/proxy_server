@@ -1,34 +1,20 @@
 use clap::{App, Arg};
 
 pub mod trade {
-    tonic::include_proto!("trade");
+    include!("../proto/generated_code/trade.rs");
 }
 
 use trade::trade_client::TradeClient;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    
-    let matches = App::new("Binance CLI Tool")
-    .version("1.0")
-    .author("tiany7")
-    .about("This is a binance cli tool that could help to get the aggregated trade data from binance.")
-    .arg(
-        Arg::with_name("symbol")
-            .short('s')
-            .long("symbol")
-            .value_name("SYMBOL")
-            .help("The symbol you want to get")
-            .takes_value(true),
-    )
-    .get_matches();
 
-    let requested_symbol = matches.value_of("symbol").unwrap();
+    let requested_symbol = "BTCUSDT";
     let request = tonic::Request::new(trade::GetAggTradeRequest {
         symbol: requested_symbol.to_string(),
     });
 
-    let mut client = TradeClient::connect("http://[::1]:10000").await?;
+    let mut client = TradeClient::connect("http://13.208.211.151:10000").await?;
     let response = client.get_agg_trade_stream(request).await?;
     let mut response = response.into_inner();
     let mut count = 0;
