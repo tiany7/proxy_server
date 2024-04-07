@@ -306,13 +306,19 @@ impl Transformer for ResamplingTransformer {
 #[async_trait]
 impl Transformer for CompressionTransformer {
     async fn transform(&self) -> Result<()> {
-        let mut ticket = self.inner.lock().await;
-        let record_batch: RecordBatch = ticket.input[0].recv()
-                                .await
-                                .unwrap()
-                                .into();
-        let serialized_bytes = CompressionTransformer::record_batch_to_bytes(&record_batch)?;
-        ticket.output[0].send(ChannelData::new(serialized_bytes)).await?;
+        loop {
+            let mut ticket = self.inner.lock().await;
+            match ticket.input[0].recv().await {
+                Some(data) => {
+                    let data: RecordBatch = data.into();
+                    let serialized_bytes = CompressionTransformer::record_batch_to_bytes(&data)?;
+                    ticket.output[0].send(ChannelData::new(serialized_bytes)).await?;
+                },
+                None => {
+                    break;
+                }
+            };
+        }
         
         Ok(())
     }

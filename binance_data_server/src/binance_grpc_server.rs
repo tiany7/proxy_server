@@ -133,10 +133,10 @@ impl Trade for TradeService {
         let mut resample_trans = pipelines::ResamplingTransformer::new(vec![resample_rx], vec![compress_tx], chrono::Duration::try_seconds(1).expect("Failed to create duration"));
         let mut compressor_trans = pipelines::CompressionTransformer::new(vec![compress_rx], vec![convert_tx]);
         let _ = tokio::spawn(async move {
-            resample_trans.transform().await;
+            let _ = resample_trans.transform().await;
         });
         let _ = tokio::spawn(async move {
-            compressor_trans.transform().await;
+            let _ = compressor_trans.transform().await;
         });
 
         
