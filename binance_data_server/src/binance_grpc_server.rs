@@ -167,7 +167,17 @@ impl Trade for TradeService {
     }
 }
 
-
+async fn start_server(addr: SocketAddr, service_inner: TradeService) {
+    let svc = TradeServer::new(market);
+    Server::builder()
+        .tcp_keepalive(Some(std::time::Duration::from_secs(10)))
+        .http2_keepalive_interval(Some(std::time::Duration::from_secs(10)))
+        .timeout(Duration::from_secs(6))
+        .add_service(svc)
+        .serve(addr)
+        .await
+        .expect("Failed to start server");
+}
 
 
 #[tokio::main]
@@ -192,7 +202,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         binance_mgr: Arc::new(Mutex::new(websocket_manager::BinanceWebsocketManager::new(config).await)),
     };
 
-    let svc = TradeServer::new(market);
 
     // new multi-threaded runtime
     tokio::runtime::Builder::new_multi_thread()
@@ -200,13 +209,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .enable_all()
         .build()
         .unwrap()
-        .block_on(move || {
-            Server::builder()
-            .tcp_keepalive(Some(std::time::Duration::from_secs(10)))
-            .http2_keepalive_interval(Some(std::time::Duration::from_secs(10)))
-            .timeout(Duration::from_secs(6))
-            .add_service(svc).serve(addr).await.expect("Failed to start server");
-        });
+        .block_on(start_server(addr, market));
 
 
     Ok(())
