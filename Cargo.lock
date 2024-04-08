@@ -1361,6 +1361,7 @@ dependencies = [
  "chrono",
  "futures",
  "lz4",
+ "lz4_flex",
  "prost",
  "rand 0.7.3",
  "serde",

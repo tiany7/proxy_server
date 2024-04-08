@@ -29,17 +29,16 @@ class TradeClient:
         return lz4.frame.decompress(bytestream)
     
     def get_arrow_batch_from_bytes(self, bytestream):
-        decompressed = self.decode_bytestream(bytestream)
-        return pa.ipc.open_stream(decompressed).read_all()
+        # decompressed = self.decode_bytestream(bytestream)
+        return pa.ipc.open_stream(bytestream)
     
     def get_market_data(self, symbol):
         request = GetMarketDataRequest(symbol=symbol)
         response_stream = self.stub.GetMarketData(request)
         for response in response_stream:
-            print(response)
             byte_data = response.data
-            decoded_byte_data = self.decode_bytestream(byte_data)
-            rb = pa.get_arrow_batch_from_bytes(decoded_byte_data)
+            decoded_byte_data = byte_data #self.decode_bytestream(byte_data)
+            rb = self.get_arrow_batch_from_bytes(decoded_byte_data)
             print(rb)
             yield rb
 if __name__ == '__main__':

@@ -7,7 +7,7 @@ use std::io::Write;
 use std::future::Future;
 
 use futures::{FutureExt, SinkExt};
-use arrow::datatypes::Schema;
+use arrow::datatypes::{Schema, ToByteSlice};
 use tokio::sync::{mpsc, Mutex};
 use anyhow::{Error, Ok, Result};
 use async_trait::async_trait;
@@ -31,6 +31,7 @@ pub mod trade {
 
 use trade::AggTradeData;    
 use trade::Column;
+use trade::BarData;
 
 struct SampleData {
     name: String,
@@ -72,6 +73,12 @@ impl Into<Column> for ChannelData {
 impl Into<Vec<u8>> for ChannelData {
     fn into(self) -> Vec<u8> {
         *self.0.downcast::<Vec<u8>>().unwrap()
+    }
+}
+
+impl Into<BarData> for ChannelData {
+    fn into(self) -> BarData {
+        *self.0.downcast::<BarData>().unwrap()
     }
 }
 
@@ -257,25 +264,24 @@ impl Transformer for ResamplingTransformer {
             if agg_trade.trade_time - open_time >= this_time_gap {
                 close_price = agg_trade.price;
                 close_time = agg_trade.trade_time;
-                let arrays: Vec<Arc<dyn arrow::array::Array>> = vec![
-                    Arc::new(Float64Array::from(vec![open_price])),
-                    Arc::new(Float64Array::from(vec![high_price])),
-                    Arc::new(Float64Array::from(vec![low_price])),
-                    Arc::new(Float64Array::from(vec![close_price])),
-                    Arc::new(Float64Array::from(vec![volume])),
-                    Arc::new(Float64Array::from(vec![quote_asset_volume])),
-                    Arc::new(arrow::array::UInt32Array::from(vec![number_of_trades as u32])),
-                    Arc::new(Float64Array::from(vec![taker_buy_base_asset_volume])),
-                    Arc::new(Float64Array::from(vec![taker_buy_quote_asset_volume])),
-                    Arc::new(arrow::array::UInt64Array::from(vec![min_id])),
-                    Arc::new(arrow::array::UInt64Array::from(vec![max_id])),
-                    Arc::new(arrow::array::UInt32Array::from(vec![missing_count as u32])),
-                    Arc::new(arrow::array::UInt64Array::from(vec![open_time])),
-                    Arc::new(arrow::array::UInt64Array::from(vec![close_time])),
-                ];
-                let record_batch = RecordBatch::try_new(Arc::new(schema.clone()), arrays).unwrap();
+                let bar_data = BarData {
+                    open: open_price,
+                    high: high_price,
+                    low: low_price,
+                    close: close_price,
+                    volume,
+                    quote_asset_volume,
+                    number_of_trades: number_of_trades,
+                    taker_buy_base_asset_volume,
+                    taker_buy_quote_asset_volume,
+                    min_id: min_id,
+                    max_id: max_id,
+                    missing_count: missing_count,
+                    open_time,
+                    close_time,
+                };
                 let ticket = self.inner.lock().await;
-                ticket.output[0].send(ChannelData::new(record_batch)).await?;
+                ticket.output[0].send(ChannelData::new(bar_data)).await?;
                 drop(ticket);
                 // reset the variables
                 low_price = f64::MAX;
@@ -310,9 +316,14 @@ impl Transformer for CompressionTransformer {
             let mut ticket = self.inner.lock().await;
             match ticket.input[0].recv().await {
                 Some(data) => {
-                    let data: RecordBatch = data.into();
-                    let serialized_bytes = CompressionTransformer::record_batch_to_bytes(&data)?;
-                    ticket.output[0].send(ChannelData::new(serialized_bytes)).await?;
+                    let data: BarData = data.into();
+                    // let serialized_bytes = CompressionTransformer::record_batch_to_bytes(&data)?;
+                    // let compressed = lz4_flex::compress_prepend_size(serialized_bytes.to_byte_slice());
+                    let res = ticket.output[0].send(ChannelData::new(data)).await;
+                    if res.is_err() {
+                        println!("pipe closed {:?}", res);
+                        break;
+                    }
                 },
                 None => {
                     break;

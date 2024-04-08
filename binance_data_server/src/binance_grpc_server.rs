@@ -1,8 +1,8 @@
 
 mod websocket_manager;
-pub mod trade {
-    include!("../../proto/generated_code/trade.rs");
-}
+// pub mod trade {
+//     include!("../../proto/generated_code/trade.rs");
+// }
 use std::sync::Arc;
 use std::fs::File;
 use std::pin::Pin;
@@ -15,8 +15,8 @@ use pipelines::Transformer;
 use tokio::sync::{mpsc, Mutex};
 use tonic::{transport::Server, Request, Response, Status};
 use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
-use trade::{GetAggTradeRequest, AggTradeData, GetAggTradeResponse,GetHeartbeatRequest, GetHeartbeatResponse, GetMarketDataRequest, GetMarketDataResponse};
-use trade::trade_server::{Trade, TradeServer};
+use pipelines::trade::{GetAggTradeRequest, AggTradeData, GetAggTradeResponse,GetHeartbeatRequest, GetHeartbeatResponse, GetMarketDataRequest, GetMarketDataResponse, BarData};
+use pipelines::trade::trade_server::{Trade, TradeServer};
 use rust_decimal::{prelude::ToPrimitive}; // Import the Decimal type
 use serde_yaml;
 use async_stream::try_stream;
@@ -158,14 +158,16 @@ impl Trade for TradeService {
                     aggregated_trade_id: msg.aggregated_trade_id,
                 };
                 resample_tx.send(pipelines::ChannelData::new(agg_trade)).await.unwrap();
-                let compressed_data: Vec<u8> = convert_rx.recv().await
+            }
+        });
+        tokio::spawn(async move {
+            let data: BarData = convert_rx.recv().await
                                                     .expect("Failed to receive compressed data")
                                                     .into();
                 let response = GetMarketDataResponse {
-                    data: compressed_data,
+                    data: Some(data),
                 };
                 tx.send(Ok(response)).await.map_err(|e| Status::internal(e.to_string())).unwrap();
-            }
         });
         Ok(Response::new(ReceiverStream::new(rx)))
     }
