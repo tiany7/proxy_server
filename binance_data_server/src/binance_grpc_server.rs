@@ -161,13 +161,19 @@ impl Trade for TradeService {
             }
         });
         tokio::spawn(async move {
-            let data: BarData = convert_rx.recv().await
+            loop {
+                let data: BarData = convert_rx.recv().await
                                                     .expect("Failed to receive compressed data")
                                                     .into();
                 let response = GetMarketDataResponse {
                     data: Some(data),
                 };
-                tx.send(Ok(response)).await.map_err(|e| Status::internal(e.to_string())).unwrap();
+                // tx.send(Ok(response)).await.map_err(|e| Status::internal(e.to_string()));
+                if let Err(e) = tx.send(Ok(response)).await {
+                    println!("Error: {}", e);
+                    break;
+                }
+            }
         });
         Ok(Response::new(ReceiverStream::new(rx)))
     }
