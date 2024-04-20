@@ -85,7 +85,7 @@ impl BinanceWebsocketManager {
     pub async fn subscribe(&self, option: BinanceWebsocketOption) -> Result<tokio::sync::mpsc::Receiver<WebsocketMessage>, Error> {
         let mut ws = match option {
             BinanceWebsocketOption::AggTrade(symbol) => {
-                let ws = BinanceWebsocket::new(&[self.listen_key.as_str(), &format!("{}@aggTrade", symbol)]).await.expect("error establishing");
+                let ws = BinanceWebsocket::new(&[self.listen_key.as_str(), &format!("{}@aggTrade", symbol)]).await?;
                 Ok(ws)
             }
             BinanceWebsocketOption::BookTicker(symbol) => {
