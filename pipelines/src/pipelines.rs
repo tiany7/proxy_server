@@ -15,6 +15,7 @@ use arrow::record_batch::RecordBatch;
 use arrow::datatypes::{DataType, Field};
 use arrow::array::{ArrayRef, Float64Array, StringArray};
 use core::num;
+use tracing::info;
 
 
 
@@ -167,24 +168,6 @@ impl CompressionTransformer {
 impl Transformer for ResamplingTransformer {
     
     async fn transform(&self) -> Result<()> {
-        // this is the schema of the record batch
-        let schema = Schema::new(vec![
-            Field::new("Open", DataType::Float64, false),
-            Field::new("High", DataType::Float64, false),
-            Field::new("Low", DataType::Float64, false),
-            Field::new("Close", DataType::Float64, false),
-            Field::new("Volume", DataType::Float64, false),
-            Field::new("Quote_asset_volume", DataType::Float64, false),
-            Field::new("Number_of_trades", DataType::UInt32, false),
-            Field::new("Taker_buy_base_asset_volume", DataType::Float64, false),
-            Field::new("Taker_buy_quote_asset_volume", DataType::Float64, false),
-            Field::new("Min_id", DataType::UInt64, false),
-            Field::new("Max_id", DataType::UInt64, false),
-            Field::new("Missing_count", DataType::UInt32, false), 
-            Field::new("Open_time", DataType::UInt64, false), 
-            Field::new("Close_time", DataType::UInt64, false), 
-        ]);
-
         let mut low_price = f64::MAX;
         let mut high_price = f64::MIN;
         let mut open_price = 0.0;
@@ -321,7 +304,7 @@ impl Transformer for CompressionTransformer {
                     // let compressed = lz4_flex::compress_prepend_size(serialized_bytes.to_byte_slice());
                     let res = ticket.output[0].send(ChannelData::new(data)).await;
                     if res.is_err() {
-                        println!("pipe closed {:?}", res);
+                        info!("pipe closed {:?}", res);
                         break;
                     }
                 },
@@ -410,7 +393,7 @@ mod tests {
 
         let open = data.column(0).as_any().downcast_ref::<Float64Array>().unwrap();
         assert_eq!(open.value(0), 114514.0);
-        println!("{:?}", open.value(0));
+        info!("{:?}", open.value(0));
         
     }   
 
