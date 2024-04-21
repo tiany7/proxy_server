@@ -66,6 +66,6 @@ name = "pipelines"
 path = "./pipelines/src/pipelines.rs"
 
 [[bin]]
-name = "metrics"
+name = "metrics_server"
 path = "./metrics/src/metrics_server.rs"
 

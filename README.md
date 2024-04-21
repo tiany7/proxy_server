@@ -4,19 +4,28 @@ A proxy server
 # Tutorial
 ## Requirement
 - rust (follow the tutorial [here](https://www.rust-lang.org/tools/install))
+- python3
+- pip3
+- protobuf-compiler
+- grpcio-tools
+- docker-families
+
 
 ## How to run
-1. Clone this repository
-2. Run the server in the background
+1. Clone the repository
+2. Lauch the metrics server
 ```bash
-cargo run --bin binance_server &
+sh scripts/init_metrics_server.sh start
 ```
-3. Build the client in another terminal
+3. cargo run
 ```bash
-cargo build --bin binance_client
+cargo run --bin data_server
+```
+# Stop the metrics server
+```bash
+sh scripts/init_metrics_server.sh stop
 ```
 
-4. Run the client
-```bash
-target/bin/binance_client --symbol BTCUSDT
-```
+
+
+
