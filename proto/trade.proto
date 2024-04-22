@@ -23,12 +23,10 @@ message GetAggTradeResponse{
 
 message GetHeartbeatRequest {
     string ping = 1;
-    // could possibly add other message here
 }
 
 message GetHeartbeatResponse {
-    string pong = 1;
-    // could possibly add other message here
+    string metrics = 1;
 }
 
 message GetMarketDataRequest {

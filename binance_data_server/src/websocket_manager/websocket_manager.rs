@@ -27,12 +27,17 @@ fn default_max_threads() -> usize {
     4
 }   
 
+fn default_metrics_server_port() -> usize {
+    8080
+}
+
 #[derive(Debug, serde::Deserialize, Clone)]
 pub struct BinanceServerConfig {
     pub port: usize,
     pub api_key: String,
     pub default_buffer_size: usize,
     pub max_threads: usize,
+    pub metrics_server_port: usize,
 }
 
 impl Default for BinanceServerConfig {
@@ -42,6 +47,7 @@ impl Default for BinanceServerConfig {
             api_key: default_api_key(),
             default_buffer_size: default_buffer_size(),
             max_threads: default_max_threads(),
+            metrics_server_port: default_metrics_server_port(),
         }
     }
 }

@@ -1,3 +1,6 @@
+pub mod trade {
+    include!("../../../proto/generated_code/trade.rs");
+}
 
 use std::convert::{TryFrom, TryInto};
 use std::vec::Vec;
@@ -6,6 +9,7 @@ use std::sync::Arc;
 use std::io::Write;
 use std::future::Future;
 
+use actix_web::middleware;
 use futures::{FutureExt, SinkExt};
 use arrow::datatypes::{Schema, ToByteSlice};
 use tokio::sync::{mpsc, Mutex};
@@ -17,6 +21,7 @@ use arrow::array::{ArrayRef, Float64Array, StringArray};
 use core::num;
 use tracing::info;
 
+use metrics_server::MISSING_VALUES_COUNT;
 
 
 // 定义一个动态数据类型
@@ -26,9 +31,7 @@ type DynData = Box<dyn Any + Send + Sync>;
 pub struct ChannelData(DynData);
 
 
-pub mod trade {
-    include!("../../proto/generated_code/trade.rs");
-}
+
 
 use trade::AggTradeData;    
 use trade::Column;
@@ -265,6 +268,9 @@ impl Transformer for ResamplingTransformer {
                 };
                 let ticket = self.inner.lock().await;
                 ticket.output[0].send(ChannelData::new(bar_data)).await?;
+                if missing_count > 0 {
+                    MISSING_VALUES_COUNT.inc_by(missing_count as u64);
+                }
                 drop(ticket);
                 // reset the variables
                 low_price = f64::MAX;

@@ -1,5 +1,5 @@
 
-
+// this file is the declaration of the metrics that will be used in the application
 use prometheus::{Histogram, IntCounter};
 use prometheus::{register_histogram, register_int_counter};
 use lazy_static::lazy_static;
@@ -18,4 +18,18 @@ lazy_static! {
         "Number of missing values"
     )
     .expect("Can't create a metric");
+}
+
+
+
+pub fn collect_metrics() -> String {
+    let encoder = prometheus::TextEncoder::new();
+    
+    let metric_families = prometheus::gather();
+    tracing::info!("Metrics: {:?}", metric_families.len());
+
+    let mut buffer = String::new();
+    encoder.encode_utf8(&metric_families, &mut buffer).expect("Failed to encode metrics");
+
+    buffer
 }

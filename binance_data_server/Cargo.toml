@@ -5,10 +5,9 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[dependencies]
-pipeline = { path = "../pipelines" }
-metrics = { path = "../metrics"}  
-
+# [dependencies]
+# pipeline = { path = "../pipelines" }
+metrics = { path = "../metrics_server"}  
 
 [[bin]]
 name = "grpc_server"

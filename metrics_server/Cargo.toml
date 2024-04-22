@@ -13,12 +13,12 @@ tokio = { version = "1.0", features = ["full"] }
 tracing = "0.1"
 hyper = "1.3.1"
 actix-web = "4.5.1"
+anyhow = "1.0"
 
 
-[[bin]]
-name = "metrics_server"
-path = "./src/metrics_server.rs"
+
+
 
 [lib]
 name = "metrics"
-path = "./src/metrics.rs"
+path = "./src/mod.rs"
