@@ -2,13 +2,12 @@
 
 
 use std::fmt::{self, Debug, Formatter};
+use std::sync::atomic::AtomicBool;
 
 use anyhow::Error;
-use binance_async::{
-    rest::usdm::StartUserDataStreamRequest, websocket::usdm::WebsocketMessage, Binance,
-    BinanceWebsocket,
-};
 use futures::StreamExt;
+use binance::ws_model::{TradesEvent, TradeEvent, WebsocketEvent};
+use binance::websockets::{WebSockets, agg_trade_stream, trade_stream};
 
 
 fn default_port() -> usize {
@@ -54,69 +53,74 @@ impl Default for BinanceServerConfig {
 
 
 #[allow(dead_code)]
+#[derive(Clone)]
 pub enum BinanceWebsocketOption{
     AggTrade(String),
-    BookTicker(String),
+    Trade(String),
     Null,
 }
 #[allow(dead_code)]
 pub struct BinanceWebsocketManager {
     config: BinanceServerConfig,
-    binance: Binance,
-    listen_key: String,
+    // this will record the connection by kind of the coin
+    connections: dashmap::DashMap<String, tokio::sync::broadcast::Sender<WebsocketEvent>>,
     // ws: BinanceWebsocket<WebsocketMessage>,
 }
 
 impl Debug for BinanceWebsocketManager {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("BinanceWebsocketManager")
-            .field("listen_key", &self.listen_key)
+            .field("listen_key", &self.config)
             .finish()
     }
 }
 
 
+
 impl BinanceWebsocketManager {
     pub async fn new(config: BinanceServerConfig) -> Self {
-        // this will panic if the environment variable is not set
-        let binance = Binance::with_key(&config.api_key);
-        let listen_key = binance.request(StartUserDataStreamRequest {}).await.unwrap();
         BinanceWebsocketManager {
             config,
-            binance,
-            listen_key: listen_key.listen_key,
+            connections: dashmap::DashMap::new(),
         }
     }
 
-    pub async fn subscribe(&self, option: BinanceWebsocketOption) -> Result<tokio::sync::mpsc::Receiver<WebsocketMessage>, Error> {
-        let mut ws = match option {
-            BinanceWebsocketOption::AggTrade(symbol) => {
-                let ws = BinanceWebsocket::new(&[self.listen_key.as_str(), &format!("{}@aggTrade", symbol)]).await?;
-                Ok(ws)
+    pub async fn subscribe(&self, option: BinanceWebsocketOption) -> Result<tokio::sync::broadcast::Receiver<WebsocketEvent>, Error> {
+        let key = match option.clone() {
+            BinanceWebsocketOption::AggTrade(symbol) => format!("{}@aggTrade", symbol),
+            BinanceWebsocketOption::Trade(symbol) => format!("{}@trade", symbol),
+            BinanceWebsocketOption::Null => {
+                return Err(anyhow::anyhow!("Invalid option"));
             }
-            BinanceWebsocketOption::BookTicker(symbol) => {
-                let ws = BinanceWebsocket::new(&[self.listen_key.as_str(), &format!("{}@bookTicker", symbol)]).await?;
-                Ok(ws)
-            }
-            _ => {
-                Err(Error::msg("Unsupported option!!"))
-            }
-        }?;
-
-        let (tx, rx) = tokio::sync::mpsc::channel(self.config.default_buffer_size);
-        tokio::spawn(async move {
-            while let Some(msg) = ws.next().await {
-                match msg {
-                    Ok(msg) => {
-                        tx.send(msg).await.unwrap();
+        };
+        let buffer_size = self.config.default_buffer_size;
+        let rx = self.connections
+            .entry(key.clone())
+            .or_insert_with(|| {
+                let (tx, _) = tokio::sync::broadcast::channel(buffer_size);
+                let tx_clone = tx.clone();
+                let _ = tokio::spawn(async move {
+                    let keep_running = AtomicBool::new(true);
+                    let listen_key = match option {
+                        BinanceWebsocketOption::AggTrade(symbol) => agg_trade_stream(symbol.as_str()),
+                        BinanceWebsocketOption::Trade(symbol) => trade_stream(symbol.as_str()),
+                        _ => "".to_string(), // this will not be touched anyway
+                    };
+                    let mut ws = WebSockets::new(|event|{
+                        tx.send(event).unwrap();
+                        Ok(())
+                    });
+                    ws.connect(&listen_key).await.expect("Failed to connect");
+                    if let Err(e) = ws.event_loop(&keep_running).await {
+                        tracing::warn!("the websocket connection is closed: {:?}", e);
                     }
-                    Err(e) => {
-                        println!("channel closed: {}", e);
-                        break;
-                    }
-                }
-            }
-        });
+                    ws.disconnect().await.expect("Failed to connect");
+                });
+                tx_clone
+            })
+            .value()
+            .subscribe();
+    
 
         Ok(rx)
     }

@@ -2,7 +2,6 @@
 import os
 import grpc
 import lz4.frame
-import pyarrow as pa
 import pandas as pd
 
 
@@ -33,7 +32,7 @@ class TradeClient:
             print(rb)
             yield rb
 if __name__ == '__main__':
-    client = TradeClient(host = "13.208.211.151", port=10000)
+    client = TradeClient(host = "localhost", port=10000)
     for trade in client.get_market_data('btcusdt'):
         print(trade)
         # if you want to convert to pandas dataframe

@@ -3,7 +3,7 @@
 use prometheus::{Histogram, IntCounter};
 use prometheus::{register_histogram, register_int_counter};
 use lazy_static::lazy_static;
-use actix_web::{web, App, HttpServer, Responder};
+use actix_web::{web, App, HttpServer};
 
 lazy_static! {
     pub static ref AVG_PRICE_PER_MINUTE: Histogram = register_histogram!(

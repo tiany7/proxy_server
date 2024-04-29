@@ -11,7 +11,6 @@ use std::io::BufReader;
 use std::time::Duration;
 
 
-use binance_async::websocket::usdm::WebsocketMessage::AggregateTrade;
 use tokio::sync::{mpsc, Mutex};
 use tonic::{transport::Server, Request, Response, Status};
 use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
@@ -20,10 +19,14 @@ use pipelines::pipelines::trade::trade_server::{Trade, TradeServer};
 use rust_decimal::{prelude::ToPrimitive}; // Import the Decimal type
 use metrics_server::start_server as start_metrics_server;
 use serde_yaml;
+use binance::ws_model::WebsocketEvent;
 
 use crate::websocket_manager::websocket_manager::BinanceWebsocketManager;
 use crate::pipelines::pipelines::{ChannelData, Transformer, CompressionTransformer, ResamplingTransformer};
 
+fn parse_f64_or_default(input: &str) -> f64 {
+    input.parse::<f64>().unwrap_or(0.0)
+}
 
 #[derive(Debug, Clone)]
 pub struct TradeService {
@@ -54,18 +57,15 @@ impl Trade for TradeService {
                 .unwrap();
         drop(binance_mgr_ticket);
         tokio::spawn(async move {
-            
-            
-        
-            while let Some(msg) = ws.recv().await {
+            while let Ok(msg) = ws.recv().await {
                 match msg {
-                    AggregateTrade(msg) => {
+                    WebsocketEvent::AggTrade(msg) => {
                         let inner = AggTradeData {
                             symbol: msg.symbol,
-                            price: msg.price.to_f64().unwrap(),
-                            quantity: msg.qty.to_f64().unwrap(),
+                            price: parse_f64_or_default(&msg.price),
+                            quantity: parse_f64_or_default(&msg.qty),
                             trade_time: msg.event_time,
-                            event_type: msg.event_type,
+                            event_type: "aggTrade".to_string(),
                             is_buyer_maker: msg.is_buyer_maker,
                             first_break_trade_id: msg.first_break_trade_id,
                             last_break_trade_id: msg.last_break_trade_id,
@@ -74,16 +74,14 @@ impl Trade for TradeService {
                         let response = GetAggTradeResponse {
                             data: Some(inner),
                         };
-                        tx.send(Ok(response)).await.map_err(|e| Status::internal(e.to_string())).unwrap();
-                    }
+                        if let Err(e) =  tx.send(Ok(response)).await {
+                            tracing::warn!("channel closed: {}", e);
+                        }
+                    },
                     _ => {
-                        tx.send(Err(Status::invalid_argument("mismatched type[type != aggTrade]")))
-                            .await
-                            .map_err(|e| Status::internal(e.to_string())).unwrap();
+                        tracing::warn!("mismatched type[type != aggTrade], please add it to handle it");
                     }
-                    
-                }
-                
+                }; 
                 
             }
         });
@@ -120,12 +118,14 @@ impl Trade for TradeService {
         &self,
         request: Request<GetMarketDataRequest>,
     ) -> Result<Response<Self::GetMarketDataStream>, Status> {
+        tracing::info!("request came in");
         let this_config = self.config.clone();
         let config_ticket = this_config.lock().await;
         let this_config = config_ticket.clone();
         drop(config_ticket);
         let (tx, rx) = mpsc::channel(this_config.default_buffer_size);
         
+        let config_clone = this_config.clone();
         let request = request.into_inner();
         let requested_symbol = request.symbol;
         tracing::info!("Requested symbol: {}", requested_symbol);
@@ -144,26 +144,35 @@ impl Trade for TradeService {
             let _ = compressor_trans.transform().await;
         });
 
-        // create the websocket connection thru the manager
-        let binance_mgr_ticket = self.binance_mgr.lock().await;
-        let mut ws = binance_mgr_ticket.subscribe(websocket_manager::websocket_manager::BinanceWebsocketOption::AggTrade(requested_symbol))
+        let binance_mgr = BinanceWebsocketManager::new(config_clone).await;
+        let mut ws = binance_mgr.subscribe(websocket_manager::websocket_manager::BinanceWebsocketOption::AggTrade(requested_symbol))
                 .await
                 .unwrap();
-        drop(binance_mgr_ticket);
+
         tokio::spawn(async move {
-            while let Some(AggregateTrade(msg)) = ws.recv().await {
-                let agg_trade = AggTradeData {
-                    symbol: msg.symbol,
-                    price: msg.price.to_f64().unwrap(),
-                    quantity: msg.qty.to_f64().unwrap(),
-                    trade_time: msg.event_time,
-                    event_type: msg.event_type,
-                    is_buyer_maker: msg.is_buyer_maker,
-                    first_break_trade_id: msg.first_break_trade_id,
-                    last_break_trade_id: msg.last_break_trade_id,
-                    aggregated_trade_id: msg.aggregated_trade_id,
-                };
-                resample_tx.send(ChannelData::new(agg_trade)).await.unwrap();
+            while let Ok(msg) = ws.recv().await {
+                match msg {
+                    WebsocketEvent::AggTrade(msg) => {
+                        let agg_trade = AggTradeData {
+                            symbol: msg.symbol,
+                            price: parse_f64_or_default(&msg.price),
+                            quantity: parse_f64_or_default(&msg.qty),
+                            trade_time: msg.event_time,
+                            event_type: "aggTrade".to_string(),
+                            is_buyer_maker: msg.is_buyer_maker,
+                            first_break_trade_id: msg.first_break_trade_id,
+                            last_break_trade_id: msg.last_break_trade_id,
+                            aggregated_trade_id: msg.aggregated_trade_id,
+                        };
+                        if let Err(e) =  resample_tx.send(ChannelData::new(agg_trade)).await {
+                            tracing::warn!("channel closed: {}", e);
+                        }
+                    },
+                    _ => {
+                        tracing::warn!("mismatched type[type != aggTrade], please add it to handle it");
+                    }
+                }; 
+                
             }
         });
         tokio::spawn(async move {
@@ -176,7 +185,7 @@ impl Trade for TradeService {
                 };
                 // tx.send(Ok(response)).await.map_err(|e| Status::internal(e.to_string()));
                 if let Err(e) = tx.send(Ok(response)).await {
-                    println!("Error: {}", e);
+                    tracing::warn!("Error: {}", e);
                     break;
                 }
             }
@@ -188,6 +197,7 @@ impl Trade for TradeService {
 async fn start_server(service_inner: TradeService, port: usize) -> anyhow::Result<()>{
     let addr = format!("0.0.0.0:{}", port).parse().unwrap();
     let svc = TradeServer::new(service_inner);
+    tracing::info!("ready to accept request from {:?}", addr);
     Server::builder()
         .tcp_keepalive(Some(std::time::Duration::from_secs(10)))
         .http2_keepalive_interval(Some(std::time::Duration::from_secs(10)))
@@ -223,12 +233,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config: Arc::new(Mutex::new(config.clone())),
         binance_mgr: Arc::new(Mutex::new(BinanceWebsocketManager::new(config).await)),
     };
+    let end_fut = tokio::signal::ctrl_c();
+    let server_fut = tokio::spawn(async move{
+        let _ = start_server(market, port).await; 
+    });
+    let metrics_server_fut = tokio::spawn(async move{
+        let _ = start_metrics_server(metrics_port).await;
+    });
+    tokio::select! {
+        _ = end_fut => {
+            tracing::warn!("Ctrl+C received. Aborting tasks.");
+            server_fut.abort();
+            metrics_server_fut.abort();
+        }
+    }
+    // let metrics_server = start_metrics_server(metrics_port);
+    // let handles = Vec::new();
+    // for i in 1..5{
+    //     let market_clone = market.clone();
+    //     let port_clone = port.clone();
+    //     if i != 4 {
+    //         tokio::spawn(async move {
+    //             start_server(market_clone, port_clone).await.unwrap();
+    //         });
+    //     } else {
+    //         start_server(market_clone, port_clone).await.unwrap();
+    //     }
+    // }
+    
 
-
-    let server = start_server(market, port);
-    let metrics_server = start_metrics_server(metrics_port);
-
-    tokio::try_join!(server, metrics_server).expect("Failed to start server");
     Ok(())
 }
 
