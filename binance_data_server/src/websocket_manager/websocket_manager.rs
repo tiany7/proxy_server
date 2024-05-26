@@ -5,7 +5,6 @@ use std::fmt::{self, Debug, Formatter};
 use std::sync::atomic::AtomicBool;
 
 use anyhow::Error;
-use futures::StreamExt;
 use binance::ws_model::{TradesEvent, TradeEvent, WebsocketEvent};
 use binance::websockets::{WebSockets, agg_trade_stream, trade_stream};
 
@@ -63,7 +62,8 @@ pub enum BinanceWebsocketOption{
 pub struct BinanceWebsocketManager {
     config: BinanceServerConfig,
     // this will record the connection by kind of the coin
-    connections: dashmap::DashMap<String, tokio::sync::broadcast::Sender<WebsocketEvent>>,
+    // use map's default function as indicator that of the connection is already created
+    connections: dashmap::DashMap<String, async_broadcast::Receiver<WebsocketEvent>>,
     // ws: BinanceWebsocket<WebsocketMessage>,
 }
 
@@ -75,8 +75,6 @@ impl Debug for BinanceWebsocketManager {
     }
 }
 
-
-
 impl BinanceWebsocketManager {
     pub async fn new(config: BinanceServerConfig) -> Self {
         BinanceWebsocketManager {
@@ -85,7 +83,7 @@ impl BinanceWebsocketManager {
         }
     }
 
-    pub async fn subscribe(&self, option: BinanceWebsocketOption) -> Result<tokio::sync::broadcast::Receiver<WebsocketEvent>, Error> {
+    pub async fn subscribe(&self, option: BinanceWebsocketOption) -> Result<async_broadcast::Receiver<WebsocketEvent>, Error> {
         let key = match option.clone() {
             BinanceWebsocketOption::AggTrade(symbol) => format!("{}@aggTrade", symbol),
             BinanceWebsocketOption::Trade(symbol) => format!("{}@trade", symbol),
@@ -97,8 +95,8 @@ impl BinanceWebsocketManager {
         let rx = self.connections
             .entry(key.clone())
             .or_insert_with(|| {
-                let (tx, _) = tokio::sync::broadcast::channel(buffer_size);
-                let tx_clone = tx.clone();
+                let (tx, mut rx) = async_broadcast::broadcast(buffer_size);
+                
                 let _ = tokio::spawn(async move {
                     let keep_running = AtomicBool::new(true);
                     let listen_key = match option {
@@ -106,9 +104,16 @@ impl BinanceWebsocketManager {
                         BinanceWebsocketOption::Trade(symbol) => trade_stream(symbol.as_str()),
                         _ => "".to_string(), // this will not be touched anyway
                     };
-                    let mut ws = WebSockets::new(|event|{
-                        tx.send(event).unwrap();
+                    let (task_tx, mut task_rx) = crossbeam_channel::unbounded();
+                    let mut ws = WebSockets::new(move |event| {
+                        // TODO(yuanhan): this is very hacky, we might need another solution to solve this
+                        task_tx.send(event).map_err(|e| anyhow::anyhow!("Failed to send event: {:?}", e)).unwrap();
                         Ok(())
+                    });
+                    let _ = tokio::spawn(async move {
+                        while let Ok(event) = task_rx.recv() {
+                            tx.broadcast(event).await.expect("Failed to send event");
+                        }
                     });
                     ws.connect(&listen_key).await.expect("Failed to connect");
                     if let Err(e) = ws.event_loop(&keep_running).await {
@@ -116,10 +121,10 @@ impl BinanceWebsocketManager {
                     }
                     ws.disconnect().await.expect("Failed to connect");
                 });
-                tx_clone
+                rx
             })
             .value()
-            .subscribe();
+            .clone();
     
 
         Ok(rx)

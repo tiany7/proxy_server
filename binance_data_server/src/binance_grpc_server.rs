@@ -22,7 +22,7 @@ use serde_yaml;
 use binance::ws_model::WebsocketEvent;
 
 use crate::websocket_manager::websocket_manager::BinanceWebsocketManager;
-use crate::pipelines::pipelines::{ChannelData, Transformer, CompressionTransformer, ResamplingTransformer};
+use crate::pipelines::pipelines::{TimeUnit, ChannelData, Transformer, CompressionTransformer, ResamplingTransformer};
 
 fn parse_f64_or_default(input: &str) -> f64 {
     input.parse::<f64>().unwrap_or(0.0)
@@ -57,7 +57,7 @@ impl Trade for TradeService {
                 .unwrap();
         drop(binance_mgr_ticket);
         tokio::spawn(async move {
-            while let Ok(msg) = ws.recv().await {
+            while let Some(msg) = ws.next().await {
                 match msg {
                     WebsocketEvent::AggTrade(msg) => {
                         let inner = AggTradeData {
@@ -135,7 +135,7 @@ impl Trade for TradeService {
         let (compress_tx, compress_rx) = mpsc::channel(this_config.default_buffer_size);
         // this pipe passes data from the compressor transformer to the grpc server's response
         let (convert_tx, mut convert_rx) = mpsc::channel(this_config.default_buffer_size);
-        let resample_trans = ResamplingTransformer::new(vec![resample_rx], vec![compress_tx], chrono::Duration::try_seconds(1).expect("Failed to create duration"));
+        let resample_trans = ResamplingTransformer::new(vec![resample_rx], vec![compress_tx], TimeUnit::Second(1));
         let compressor_trans = CompressionTransformer::new(vec![compress_rx], vec![convert_tx]);
         let _ = tokio::spawn(async move {
             let _ = resample_trans.transform().await;
@@ -233,7 +233,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config: Arc::new(Mutex::new(config.clone())),
         binance_mgr: Arc::new(Mutex::new(BinanceWebsocketManager::new(config).await)),
     };
-    let end_fut = tokio::signal::ctrl_c();
     let server_fut = tokio::spawn(async move{
         let _ = start_server(market, port).await; 
     });
@@ -241,27 +240,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = start_metrics_server(metrics_port).await;
     });
     tokio::select! {
-        _ = end_fut => {
+        _ = tokio::signal::ctrl_c() => {
             tracing::warn!("Ctrl+C received. Aborting tasks.");
             server_fut.abort();
             metrics_server_fut.abort();
         }
     }
-    // let metrics_server = start_metrics_server(metrics_port);
-    // let handles = Vec::new();
-    // for i in 1..5{
-    //     let market_clone = market.clone();
-    //     let port_clone = port.clone();
-    //     if i != 4 {
-    //         tokio::spawn(async move {
-    //             start_server(market_clone, port_clone).await.unwrap();
-    //         });
-    //     } else {
-    //         start_server(market_clone, port_clone).await.unwrap();
-    //     }
-    // }
     
-
     Ok(())
 }
 
