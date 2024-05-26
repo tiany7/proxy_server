@@ -22,7 +22,7 @@ use serde_yaml;
 use binance::ws_model::WebsocketEvent;
 
 use crate::websocket_manager::websocket_manager::BinanceWebsocketManager;
-use crate::pipelines::pipelines::{TimeUnit, ChannelData, Transformer, CompressionTransformer, ResamplingTransformer};
+use crate::pipelines::pipelines::{ChannelData, Transformer, CompressionTransformer, ResamplingTransformer};
 
 fn parse_f64_or_default(input: &str) -> f64 {
     input.parse::<f64>().unwrap_or(0.0)
@@ -57,7 +57,7 @@ impl Trade for TradeService {
                 .unwrap();
         drop(binance_mgr_ticket);
         tokio::spawn(async move {
-            while let Some(msg) = ws.next().await {
+            while let Ok(msg) = ws.recv().await {
                 match msg {
                     WebsocketEvent::AggTrade(msg) => {
                         let inner = AggTradeData {
@@ -135,7 +135,7 @@ impl Trade for TradeService {
         let (compress_tx, compress_rx) = mpsc::channel(this_config.default_buffer_size);
         // this pipe passes data from the compressor transformer to the grpc server's response
         let (convert_tx, mut convert_rx) = mpsc::channel(this_config.default_buffer_size);
-        let resample_trans = ResamplingTransformer::new(vec![resample_rx], vec![compress_tx], TimeUnit::Second(1));
+        let resample_trans = ResamplingTransformer::new(vec![resample_rx], vec![compress_tx], chrono::Duration::seconds(1));
         let compressor_trans = CompressionTransformer::new(vec![compress_rx], vec![convert_tx]);
         let _ = tokio::spawn(async move {
             let _ = resample_trans.transform().await;
@@ -151,6 +151,7 @@ impl Trade for TradeService {
 
         tokio::spawn(async move {
             while let Ok(msg) = ws.recv().await {
+
                 match msg {
                     WebsocketEvent::AggTrade(msg) => {
                         let agg_trade = AggTradeData {

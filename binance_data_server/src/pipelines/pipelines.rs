@@ -20,7 +20,6 @@ use arrow::datatypes::{DataType, Field};
 use arrow::array::{ArrayRef, Float64Array, StringArray};
 use core::num;
 use tracing::info;
-use chrono::{Utc, DateTime, TimeZone, Duration as ChronoDuration};
 
 use metrics_server::MISSING_VALUES_COUNT;
 
@@ -38,136 +37,9 @@ use trade::AggTradeData;
 use trade::Column;
 use trade::BarData;
 
-#[derive(Debug, Clone)]
-pub enum TimeUnit {
-    Millisecond(i64),
-    Second(i64),
-    Minute(i64),
-    Hour(i64),
-    Day(i64),
-    Week(i64),
-}
-
 struct SampleData {
     name: String,
     age: i32,
-}
-
-impl TimeUnit {
-    pub fn as_milliseconds(&self) -> i64 {
-        match *self {
-            TimeUnit::Millisecond(ms) => ms,
-            TimeUnit::Second(s) => s * 1000,
-            TimeUnit::Minute(m) => m * 60 * 1000,
-            TimeUnit::Hour(h) => h * 60 * 60 * 1000,
-            TimeUnit::Day(d) => d * 24 * 60 * 60 * 1000,
-            TimeUnit::Week(w) => w * 7 * 24 * 60 * 60 * 1000,
-        }
-    }
-
-    pub fn to_string(&self) -> String {
-        match *self {
-            TimeUnit::Millisecond(ms) => format!("{}ms", ms),
-            TimeUnit::Second(s) => format!("{}s", s),
-            TimeUnit::Minute(m) => format!("{}m", m),
-            TimeUnit::Hour(h) => format!("{}h", h),
-            TimeUnit::Day(d) => format!("{}d", d),
-            TimeUnit::Week(w) => format!("{}w", w),
-        }
-    }
-
-    pub fn duration_until_next(&self, now: DateTime<Utc>) -> tokio::time::Duration {
-        let next_time = match *self {
-            TimeUnit::Millisecond(ms) => {
-                let next_ms = ((now.timestamp_millis() / ms) + 1) * ms;
-                Utc.timestamp_millis(next_ms)
-            },
-            TimeUnit::Second(s) => {
-                let next_s = ((now.timestamp() / s) + 1) * s;
-                Utc.timestamp(next_s, 0)
-            },
-            TimeUnit::Minute(m) => {
-                let next_m = ((now.timestamp() / 60 / m) + 1) * 60 * m;
-                Utc.timestamp(next_m, 0)
-            },
-            TimeUnit::Hour(h) => {
-                let next_h = ((now.timestamp() / 3600 / h) + 1) * 3600 * h;
-                Utc.timestamp(next_h, 0)
-            },
-            TimeUnit::Day(d) => {
-                (now.date() + ChronoDuration::days(d)).and_hms(0, 0, 0)
-            },
-            TimeUnit::Week(w) => {
-                (now.date() + ChronoDuration::weeks(w)).and_hms(0, 0, 0)
-            },
-        };
-
-        let duration = next_time - now;
-        tokio::time::Duration::from_millis(duration.num_milliseconds() as u64)
-    }
-}
-
-
-#[derive(Debug, Clone)]
-struct DataSlice {
-    low_price: f64,
-    high_price: f64,
-    open_price: f64,
-    close_price: f64,
-    volume: f64,
-    quote_asset_volume: f64,
-    number_of_trades: u64,
-    taker_buy_base_asset_volume: f64,
-    taker_buy_quote_asset_volume: f64,
-    min_id: u64,
-    max_id: u64,
-    missing_count: u64,
-    open_time: u64,
-    close_time: u64,
-    last: Option<u64>,
-}
-
-impl Default for DataSlice {
-    fn default() -> Self {
-        DataSlice {
-            low_price: f64::MAX,
-            high_price: f64::MIN,
-            open_price: 0.0,
-            close_price: 0.0,
-            volume: 0.0,
-            quote_asset_volume: 0.0,
-            number_of_trades: 0,
-            taker_buy_base_asset_volume: 0.0,
-            taker_buy_quote_asset_volume: 0.0,
-            min_id: 0,
-            max_id: 0,
-            missing_count: 0,
-            open_time: 0,
-            close_time: 0,
-            last: None,
-        }
-    }
-}
-
-impl DataSlice {
-    // 添加一个方法来重置所有数据
-    fn reset(&mut self) {
-        self.low_price = f64::MAX;
-        self.high_price = f64::MIN;
-        self.open_price = 0.0;
-        self.close_price = 0.0;
-        self.volume = 0.0;
-        self.quote_asset_volume = 0.0;
-        self.number_of_trades = 0;
-        self.taker_buy_base_asset_volume = 0.0;
-        self.taker_buy_quote_asset_volume = 0.0;
-        self.min_id = 0;
-        self.max_id = 0;
-        self.missing_count = 0;
-        self.open_time = 0;
-        self.close_time = 0;
-        self.last = None;
-    }
 }
 
 // 实现 ChannelData 的方法
@@ -237,7 +109,7 @@ pub struct ResamplingTransformerInner {
     // in milliseconds, this is used to control the granularity of the data
     input: Vec<mpsc::Receiver<ChannelData>>,
     output: Vec<mpsc::Sender<ChannelData>>,
-    granularity: TimeUnit,
+    granularity: chrono::Duration,
 }
 
 pub struct CompressionTransformerInner {
@@ -258,7 +130,7 @@ pub struct CompressionTransformer {
 
 impl ResamplingTransformer {
     #[allow(dead_code)]
-    pub fn new(input: Vec<mpsc::Receiver<ChannelData>>, output: Vec<mpsc::Sender<ChannelData>>, granularity: TimeUnit) -> Self {
+    pub fn new(input: Vec<mpsc::Receiver<ChannelData>>, output: Vec<mpsc::Sender<ChannelData>>, granularity: chrono::Duration) -> Self {
         ResamplingTransformer {
             inner: Arc::new(Mutex::new(ResamplingTransformerInner {
                 input,
@@ -299,117 +171,126 @@ impl CompressionTransformer {
 impl Transformer for ResamplingTransformer {
     
     async fn transform(&self) -> Result<()> {
-        // what we are gonna to do here is to dispatch the tasks into two coroutines
-        // first one is to compute the bar data
-        // second one is to take account of time and freeze the first coroutine when it is the time to send the data
-        let data = Arc::new(Mutex::new(DataSlice::default()));
-        let data_clone = data.clone();
-        let this = self.inner.lock().await;
-        let this_time_gap = this.granularity.clone();
+        let mut low_price = f64::MAX;
+        let mut high_price = f64::MIN;
+        let mut open_price = 0.0;
+        let mut close_price = 0.0;
+        let mut volume = 0.0;
+        let mut quote_asset_volume = 0.0;
+        let mut number_of_trades = 0;
+        let mut taker_buy_base_asset_volume = 0.0;
+        let mut taker_buy_quote_asset_volume = 0.0;
+        let mut min_id = 0;
+        let mut max_id = 0;
+        let mut missing_count = 0;
+        let mut open_time = 0;
+        let mut close_time = 0;
 
+        let mut last: Option<u64> = None;
+        let this = self.inner.lock().await;
+        let this_time_gap = this.granularity.num_milliseconds() as u64;
         drop(this);
 
-        let inner_clone = self.inner.clone();
-        let inner_another_clone = self.inner.clone();
-        let resampler = tokio::spawn(async move {
-            loop {
-                let mut ticket = inner_clone.lock().await;
-                let agg_trade = ticket.input[0].recv().await;
-                drop(ticket);
-
-                if agg_trade.is_none() {
-                    break;
-                }
-                let agg_trade: AggTradeData = agg_trade.unwrap().into();
-                
-                let mut data_ticket = data.lock().await;
-                // count number of trades
-                data_ticket.number_of_trades += 1;
-    
-                // update the min_id and max_id
-                if data_ticket.last.is_some() {
-                    data_ticket.missing_count += agg_trade.aggregated_trade_id - data_ticket.last.unwrap() - 1; 
-                }
-    
-                data_ticket.last = Some(agg_trade.aggregated_trade_id);
-    
-                assert!(data_ticket.missing_count >= 0);
-    
-                if agg_trade.price < data_ticket.low_price {
-                    data_ticket.low_price = agg_trade.price;
-                    data_ticket.min_id = agg_trade.aggregated_trade_id;
-                }
-    
-                if agg_trade.price > data_ticket.high_price {
-                    data_ticket.high_price = agg_trade.price;
-                    data_ticket.max_id = agg_trade.aggregated_trade_id;
-                }
-    
-                if data_ticket.number_of_trades == 1 {
-                    data_ticket.open_price = agg_trade.price;
-                    data_ticket.open_time = agg_trade.trade_time;
-                }
-    
-                data_ticket.volume += agg_trade.quantity;
-                data_ticket.quote_asset_volume += agg_trade.price * agg_trade.quantity;
-    
-                data_ticket.taker_buy_base_asset_volume += {
-                    if !agg_trade.is_buyer_maker {
-                        agg_trade.quantity
-                    } else {
-                        0.0
-                    }
-                };
-    
-                data_ticket.taker_buy_quote_asset_volume += {
-                    if !agg_trade.is_buyer_maker {
-                        agg_trade.price * agg_trade.quantity
-                    } else {
-                        0.0
-                    }
-                };
+        loop {
+            let mut ticket = self.inner.lock().await;
+            let agg_trade = ticket.input[0].recv().await;
+            drop(ticket);
+            if agg_trade.is_none() {
+                break;
             }
-            Ok(())
-        });
-
-        // this task will account for the time
-        let time_counter = tokio::spawn(async move{
-            // get now from tokio 
-            let now = Utc::now();
-            let duration = this_time_gap.duration_until_next(now);
-            loop {
-                let _ = tokio::time::sleep(duration).await;
-                let mut ticket = data_clone.lock().await;
-                let data_ticket = (*ticket).clone();
-                ticket.reset();
-                drop(ticket);
-                tracing::info!("Received data: {}", 111);
+            let agg_trade: AggTradeData = agg_trade.unwrap().into();
+            
+            // check granularity
+            if open_time > 0 && agg_trade.trade_time - open_time >= this_time_gap {
+                close_price = agg_trade.price;
+                close_time = agg_trade.trade_time;
                 let bar_data = BarData {
-                    low: data_ticket.low_price,
-                    high: data_ticket.high_price,
-                    open: data_ticket.open_price,
-                    close: data_ticket.close_price,
-                    volume: data_ticket.volume,
-                    quote_asset_volume: data_ticket.quote_asset_volume,
-                    number_of_trades: data_ticket.number_of_trades,
-                    taker_buy_base_asset_volume: data_ticket.taker_buy_base_asset_volume,
-                    taker_buy_quote_asset_volume: data_ticket.taker_buy_quote_asset_volume,
-                    min_id: data_ticket.min_id,
-                    max_id: data_ticket.max_id,
-                    missing_count: data_ticket.missing_count,
-                    open_time: data_ticket.open_time,
-                    close_time: data_ticket.close_time,
+                    open: open_price,
+                    high: high_price,
+                    low: low_price,
+                    close: close_price,
+                    volume,
+                    quote_asset_volume,
+                    number_of_trades: number_of_trades,
+                    taker_buy_base_asset_volume,
+                    taker_buy_quote_asset_volume,
+                    min_id: min_id,
+                    max_id: max_id,
+                    missing_count: missing_count,
+                    open_time,
+                    close_time,
                 };
-                let ticket = inner_another_clone.lock().await;
-                let res = ticket.output[0].send(ChannelData::new(bar_data)).await;
-                if res.is_err() {
-                    break;
+                let ticket = self.inner.lock().await;
+                ticket.output[0].send(ChannelData::new(bar_data)).await?;
+                if missing_count > 0 {
+                    MISSING_VALUES_COUNT.inc_by(missing_count as u64);
                 }
+                drop(ticket);
+                // reset the variables
+                low_price = f64::MAX;
+                high_price = f64::MIN;
+                open_price = 0.0;
+                close_price = 0.0;
+                volume = 0.0;
+                quote_asset_volume = 0.0;
+                number_of_trades = 0;
+                taker_buy_base_asset_volume = 0.0;
+                taker_buy_quote_asset_volume = 0.0;
+                min_id = 0;
+                max_id = 0;
+                missing_count = 0;
+                open_time = 0;
+                close_time = 0;
             }
-            Ok(())
-        });
+            // count number of trades
+            number_of_trades += 1;
 
-        let _ = futures::future::join(resampler, time_counter).await;
+            // update the min_id and max_id
+            if last.is_some() {
+                missing_count += agg_trade.aggregated_trade_id - last.unwrap() - 1; 
+            }
+
+            last = Some(agg_trade.aggregated_trade_id);
+
+            assert!(missing_count >= 0);
+
+            if agg_trade.price < low_price {
+                low_price = agg_trade.price;
+                min_id = agg_trade.aggregated_trade_id;
+            }
+
+            if agg_trade.price > high_price {
+                high_price = agg_trade.price;
+                max_id = agg_trade.aggregated_trade_id;
+            }
+
+            if number_of_trades == 1 {
+                open_price = agg_trade.price;
+                open_time = agg_trade.trade_time;
+            }
+
+            volume += agg_trade.quantity;
+            quote_asset_volume += agg_trade.price * agg_trade.quantity;
+
+            taker_buy_base_asset_volume += {
+                if !agg_trade.is_buyer_maker {
+                    agg_trade.quantity
+                } else {
+                    0.0
+                }
+            };
+
+            taker_buy_quote_asset_volume += {
+                if !agg_trade.is_buyer_maker {
+                    agg_trade.price * agg_trade.quantity
+                } else {
+                    0.0
+                }
+            };
+
+            
+        }
+
 
         Ok(())
     }
@@ -504,7 +385,7 @@ mod tests {
 
         let (tx, rx) = create_channel(10);
         let (tx2, mut rx2) = create_channel(10);
-        let resample_trans = ResamplingTransformer::new(vec![rx], vec![tx2], TimeUnit::Second(1));
+        let resample_trans = ResamplingTransformer::new(vec![rx], vec![tx2], chrono::Duration::try_seconds(1).expect("Failed to create duration"));
         
         let handle = tokio::spawn(async move {
             let _ = resample_trans.transform().await;
