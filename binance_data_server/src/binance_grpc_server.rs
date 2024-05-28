@@ -135,7 +135,7 @@ impl Trade for TradeService {
         let (compress_tx, compress_rx) = mpsc::channel(this_config.default_buffer_size);
         // this pipe passes data from the compressor transformer to the grpc server's response
         let (convert_tx, mut convert_rx) = mpsc::channel(this_config.default_buffer_size);
-        let resample_trans = ResamplingTransformer::new(vec![resample_rx], vec![compress_tx], chrono::Duration::seconds(1));
+        let resample_trans = ResamplingTransformer::new(vec![resample_rx], vec![compress_tx], crate::pipelines::pipelines::TimeUnit::Second(1));
         let compressor_trans = CompressionTransformer::new(vec![compress_rx], vec![convert_tx]);
         let _ = tokio::spawn(async move {
             let _ = resample_trans.transform().await;
