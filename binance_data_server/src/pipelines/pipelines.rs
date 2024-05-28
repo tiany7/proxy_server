@@ -105,6 +105,24 @@ impl TimeUnit {
         let duration = next_time - now;
         tokio::time::Duration::from_millis(duration.num_milliseconds() as u64)
     }
+
+    pub fn to_duration(&self) -> tokio::time::Duration {
+         match *self {
+            TimeUnit::Millisecond(ms) => {
+                tokio::time::Duration::from_millis(ms as u64)
+            },
+            TimeUnit::Second(s) => {
+                tokio::time::Duration::from_secs(s as u64)
+            },
+            TimeUnit::Minute(m) => {
+                tokio::time::Duration::from_secs((m * 60) as u64)
+            },
+            TimeUnit::Hour(h) => {
+                tokio::time::Duration::from_secs((h * 60 * 60) as u64)
+            },
+            _ => unimplemented!(),
+        }
+    }
 }
 
 
@@ -306,7 +324,6 @@ impl Transformer for ResamplingTransformer {
         let data_clone = data.clone();
         let this = self.inner.lock().await;
         let this_time_gap = this.granularity.clone();
-
         drop(this);
 
         let inner_clone = self.inner.clone();
@@ -377,13 +394,20 @@ impl Transformer for ResamplingTransformer {
             // get now from tokio 
             let now = Utc::now();
             let duration = this_time_gap.duration_until_next(now);
+            let casted = this_time_gap.to_duration();
+            tracing::info!("this time gap is {:?}", duration);
+            let mut is_first: bool = true;
             loop {
-                let _ = tokio::time::sleep(duration).await;
-                let mut ticket = data_clone.lock().await;
+                if is_first {
+                    let _ = tokio::time::sleep(duration).await;
+                    is_first = false;
+                } else {
+                    let _ = tokio::time::sleep(casted).await;
+                }
+                let mut ticket = data_clone.lock().await;   
                 let data_ticket = (*ticket).clone();
                 ticket.reset();
                 drop(ticket);
-                tracing::info!("Received data: {}", 111);
                 let bar_data = BarData {
                     low: data_ticket.low_price,
                     high: data_ticket.high_price,

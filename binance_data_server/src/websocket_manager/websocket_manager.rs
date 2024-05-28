@@ -8,7 +8,7 @@ use anyhow::Error;
 use futures::StreamExt;
 use binance::ws_model::{TradesEvent, TradeEvent, WebsocketEvent};
 use binance::websockets::{WebSockets, agg_trade_stream, trade_stream};
-
+use metrics_server::MISSING_VALUE_BY_CHANNEL;
 
 fn default_port() -> usize {
     10000
@@ -107,7 +107,9 @@ impl BinanceWebsocketManager {
                         _ => "".to_string(), // this will not be touched anyway
                     };
                     let mut ws = WebSockets::new(|event|{
-                        tx.send(event).unwrap();
+                        if let Err(e) = tx.send(event) {
+                            MISSING_VALUE_BY_CHANNEL.inc();
+                        }
                         Ok(())
                     });
                     let size = std::mem::size_of::<WebsocketEvent>();

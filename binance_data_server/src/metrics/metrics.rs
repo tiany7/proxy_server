@@ -22,6 +22,14 @@ lazy_static! {
 
 
 
+lazy_static! {
+    pub static ref MISSING_VALUE_BY_CHANNEL: IntCounter = register_int_counter!(
+        "missing_value_by_channel",
+        "Number of missing values due to bounded buffer"
+    )
+    .expect("Can't create a metric");
+}
+
 pub fn collect_metrics() -> String {
     let encoder = prometheus::TextEncoder::new();
     

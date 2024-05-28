@@ -3,7 +3,7 @@ import os
 import grpc
 import lz4.frame
 import pandas as pd
-
+import time
 
 if os.path.exists("trade_pb2.py"):
     os.remove("trade_pb2.py")
@@ -29,12 +29,14 @@ class TradeClient:
         request = GetMarketDataRequest(symbol=symbol)
         response_stream = self.stub.GetMarketData(request)
         for rb in response_stream:
-            print(rb)
             yield rb
 if __name__ == '__main__':
     client = TradeClient(host = "localhost", port=10000)
-    for trade in client.get_market_data('btcusdt'):
-        print(trade)
+    start_time = time.time()
+    for trade in client.get_market_data('ethusdt'):
+        now = time.time()
+        print(f"Elapsed time: {now - start_time:.2f} seconds")
+        start_time = now
         # if you want to convert to pandas dataframe
         # df = trade.to_pandas()
         # print(df)

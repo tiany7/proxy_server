@@ -32,9 +32,14 @@ fn parse_f64_or_default(input: &str) -> f64 {
 pub struct TradeService {
     pub config: Arc<Mutex<websocket_manager::websocket_manager::BinanceServerConfig>>,
     pub binance_mgr : Arc<Mutex<BinanceWebsocketManager>>,
+    // TODO(yuanhan): add a cache layer to control the connection number
+    pub connections : dashmap::DashMap<String, tokio::sync::broadcast::Sender<ChannelData>>,
 }
 
 
+fn fmt_key(symbol: &str, typ : &str, duration : &str) -> String {
+    format!("{}-{}-{}", symbol, typ, duration)
+}
 
 #[tonic::async_trait]
 impl Trade for TradeService {
@@ -129,13 +134,14 @@ impl Trade for TradeService {
         let request = request.into_inner();
         let requested_symbol = request.symbol;
         tracing::info!("Requested symbol: {}", requested_symbol);
+        let key = fmt_key(&requested_symbol, "aggTrade", "1m");
         // this pipe passes data from the websocket to the resampling transformer
         let (resample_tx, resample_rx) = mpsc::channel(this_config.default_buffer_size);
         // this pipe passes data from the resampling transformer to the compressor transformer
         let (compress_tx, compress_rx) = mpsc::channel(this_config.default_buffer_size);
         // this pipe passes data from the compressor transformer to the grpc server's response
         let (convert_tx, mut convert_rx) = mpsc::channel(this_config.default_buffer_size);
-        let resample_trans = ResamplingTransformer::new(vec![resample_rx], vec![compress_tx], crate::pipelines::pipelines::TimeUnit::Second(1));
+        let resample_trans = ResamplingTransformer::new(vec![resample_rx], vec![compress_tx], crate::pipelines::pipelines::TimeUnit::Second(15));
         let compressor_trans = CompressionTransformer::new(vec![compress_rx], vec![convert_tx]);
         let _ = tokio::spawn(async move {
             let _ = resample_trans.transform().await;
@@ -151,7 +157,6 @@ impl Trade for TradeService {
 
         tokio::spawn(async move {
             while let Ok(msg) = ws.recv().await {
-
                 match msg {
                     WebsocketEvent::AggTrade(msg) => {
                         let agg_trade = AggTradeData {

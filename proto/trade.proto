@@ -31,10 +31,25 @@ message GetHeartbeatResponse {
 
 message GetMarketDataRequest {
     string symbol = 1;
+    TimeDuration granularity = 2;
+}
+
+enum TimeUnit {
+    SECONDS = 0;
+    MILLISECONDS = 1;
+    MICROSECONDS = 2;
+    NANOSECONDS = 3;
+}
+
+
+message TimeDuration {
+    int64 value = 1; 
+    TimeUnit unit = 2;
 }
 
 message GetMarketDataResponse {
     BarData data = 1;
+    
 }
 
 message BarData {
@@ -53,6 +68,8 @@ message BarData {
     uint64 max_id = 13;
     uint64 min_id = 14;
 }
+
+
 
 
 service Trade{
