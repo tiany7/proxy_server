@@ -33,11 +33,8 @@ class TradeClient:
 if __name__ == '__main__':
     client = TradeClient(host = "localhost", port=10000)
     start_time = time.time()
-    for trade in client.get_market_data('ethusdt'):
-        now = time.time()
-        print(f"Elapsed time: {now - start_time:.2f} seconds")
-        start_time = now
+    for trade in client.get_market_data('btcusdt'):
         # if you want to convert to pandas dataframe
         # df = trade.to_pandas()
-        # print(df)
+        print(trade)
     

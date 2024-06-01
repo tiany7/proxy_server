@@ -1,5 +1,3 @@
-
-
 pub mod trade {
     include!("../proto/generated_code/trade.rs");
 }
@@ -8,7 +6,6 @@ use trade::trade_client::TradeClient;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-
     let requested_symbol = "BTCUSDT";
     let request = tonic::Request::new(trade::GetAggTradeRequest {
         symbol: requested_symbol.to_string(),
