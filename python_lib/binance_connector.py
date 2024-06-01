@@ -11,8 +11,9 @@ if os.path.exists("trade_pb2_grpc.py"):
     os.remove("trade_pb2_grpc.py")
 os.system("python3 -m grpc_tools.protoc -I../proto/ --python_out=. --grpc_python_out=. trade.proto")
 
-from trade_pb2 import GetAggTradeRequest, GetMarketDataRequest
+from trade_pb2 import GetAggTradeRequest, GetMarketDataRequest, TimeUnit, TimeDuration
 from trade_pb2_grpc import TradeStub
+import trade_pb2
 
 class TradeClient:
     def __init__(self, host='localhost', port=10000):
@@ -25,15 +26,16 @@ class TradeClient:
         for response in response_stream:
             yield response
     
-    def get_market_data(self, symbol):
-        request = GetMarketDataRequest(symbol=symbol)
+    def get_market_data(self, symbol, time_interval=1, timeUnit=trade_pb2.SECONDS):
+        duration = trade_pb2.TimeDuration(value=time_interval, unit=trade_pb2.SECONDS)
+        request = GetMarketDataRequest(symbol=symbol, granularity = duration)
         response_stream = self.stub.GetMarketData(request)
         for rb in response_stream:
             yield rb
 if __name__ == '__main__':
     client = TradeClient(host = "localhost", port=10000)
     start_time = time.time()
-    for trade in client.get_market_data('btcusdt'):
+    for trade in client.get_market_data('btcusdt', time_interval=3):
         # if you want to convert to pandas dataframe
         # df = trade.to_pandas()
         print(trade)

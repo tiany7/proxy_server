@@ -15,15 +15,13 @@ use pipelines::pipelines::trade::{
     AggTradeData, BarData, GetAggTradeRequest, GetAggTradeResponse, GetHeartbeatRequest,
     GetHeartbeatResponse, GetMarketDataRequest, GetMarketDataResponse,
 };
- // Import the Decimal type
+// Import the Decimal type
 
 use tokio::sync::{mpsc, Mutex};
 use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
 use tonic::{transport::Server, Request, Response, Status};
 
-use crate::pipelines::pipelines::{
-    ChannelData, ResamplingTransformer, Transformer,
-};
+use crate::pipelines::pipelines::{ChannelData, ResamplingTransformer, Transformer};
 use crate::websocket_manager::websocket_manager::BinanceWebsocketManager;
 
 fn parse_f64_or_default(input: &str) -> f64 {
@@ -140,7 +138,34 @@ impl Trade for TradeService {
         let request = request.into_inner();
         let requested_symbol = request.symbol;
         tracing::info!("Requested symbol: {}", requested_symbol);
-        let key = fmt_key(&requested_symbol, "aggTrade", "1m");
+        let requested_granularity = request.granularity.unwrap_or(
+            // return 15 seconds as default
+            pipelines::pipelines::trade::TimeDuration {
+                unit: pipelines::pipelines::trade::TimeUnit::Seconds.into(),
+                value: 15,
+            },
+        );
+        let granularity_unit = requested_granularity.value;
+        let granularity =
+            match pipelines::pipelines::trade::TimeUnit::from_i32(requested_granularity.unit)
+                .expect("unrecognized time type")
+            {
+                pipelines::pipelines::trade::TimeUnit::Milliseconds => {
+                    chrono::Duration::milliseconds(granularity_unit)
+                }
+                pipelines::pipelines::trade::TimeUnit::Seconds => {
+                    chrono::Duration::seconds(granularity_unit)
+                }
+                pipelines::pipelines::trade::TimeUnit::Minutes => {
+                    chrono::Duration::minutes(granularity_unit)
+                }
+            };
+        tracing::info!(
+            "requesting {} with time interval of {:?}",
+            requested_symbol,
+            granularity
+        );
+        let key = fmt_key(&requested_symbol, "aggTrade", &granularity.to_string());
         let mut output = self.connections.entry(key).or_insert_with(|| {
            // this pipe passes data from the websocket to the resampling transformer
             let (broadcast_tx, _) = tokio::sync::broadcast::channel(this_config.default_buffer_size);

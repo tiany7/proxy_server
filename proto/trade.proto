@@ -35,10 +35,9 @@ message GetMarketDataRequest {
 }
 
 enum TimeUnit {
-    SECONDS = 0;
-    MILLISECONDS = 1;
-    MICROSECONDS = 2;
-    NANOSECONDS = 3;
+    MINUTES = 0;
+    SECONDS = 1;
+    MILLISECONDS = 2;
 }
 
 

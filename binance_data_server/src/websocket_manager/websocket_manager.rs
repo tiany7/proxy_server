@@ -3,7 +3,7 @@ use std::sync::atomic::AtomicBool;
 
 use anyhow::Error;
 use binance::websockets::{agg_trade_stream, trade_stream, WebSockets};
-use binance::ws_model::{WebsocketEvent};
+use binance::ws_model::WebsocketEvent;
 
 use metrics_server::MISSING_VALUE_BY_CHANNEL;
 

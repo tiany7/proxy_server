@@ -4,20 +4,16 @@ pub mod trade {
 
 use std::any::Any;
 
-
 use std::io::Write;
 use std::sync::Arc;
 use std::vec::Vec;
 
-
 use anyhow::{Ok, Result};
-
-
 
 use arrow::record_batch::RecordBatch;
 use async_trait::async_trait;
 
-use futures::{SinkExt};
+use futures::SinkExt;
 use tokio::sync::{mpsc, Mutex};
 use tracing::info;
 
