@@ -5,3 +5,4 @@ target/
 python_lib/__pycache__/
 python_lib/*_pb2*
 proto/generated_code/*
+trade_client/generated_code/*
