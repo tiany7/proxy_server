@@ -20,6 +20,7 @@ use pipelines::pipelines::trade::{
 use tokio::sync::{mpsc, Mutex};
 use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
 use tonic::{transport::Server, Request, Response, Status};
+use tracing_subscriber::layer::SubscriberExt;
 
 use crate::pipelines::pipelines::{ChannelData, ResamplingTransformer, Transformer};
 use crate::websocket_manager::websocket_manager::BinanceWebsocketManager;
@@ -139,7 +140,7 @@ impl Trade for TradeService {
         let requested_symbol = request.symbol;
         tracing::info!("Requested symbol: {}", requested_symbol);
         let requested_granularity = request.granularity.unwrap_or(
-            // return 15 seconds as default
+            // return 15 seconds bar as default
             pipelines::pipelines::trade::TimeDuration {
                 unit: pipelines::pipelines::trade::TimeUnit::Seconds.into(),
                 value: 15,
@@ -171,10 +172,10 @@ impl Trade for TradeService {
             let (broadcast_tx, _) = tokio::sync::broadcast::channel(this_config.default_buffer_size);
             let broadcast_tx_clone = broadcast_tx.clone();
             tokio::spawn(async move{
-                let (resample_tx, resample_rx) = mpsc::channel(5);
+                let (resample_tx, resample_rx) = mpsc::channel(55);
             // this pipe passes data from the compressor transformer to the grpc server's response
-            let (convert_tx, mut convert_rx) = mpsc::channel(5);
-            let resample_trans = ResamplingTransformer::new(vec![resample_rx], vec![convert_tx], chrono::Duration::seconds(1));
+            let (convert_tx, mut convert_rx) = mpsc::channel(55);
+            let resample_trans = ResamplingTransformer::new(vec![resample_rx], vec![convert_tx], granularity);
             // start transforming
             tokio::spawn(async move{
                 let _ = resample_trans.transform().await;
@@ -202,7 +203,7 @@ impl Trade for TradeService {
                             aggregated_trade_id: msg.aggregated_trade_id,
                         };
                             if let Err(e) =  resample_tx.send(ChannelData::new(agg_trade)).await {
-                               tracing::warn!("channel closed: {}", e);
+                            //    tracing::warn!("channel closed: {}", e);
                          }
                      },
                         _ => {
@@ -214,9 +215,11 @@ impl Trade for TradeService {
         // this task pulls the data from transformer and sends it to the grpc server
         tokio::spawn(async move {
             loop {
+                
                 let data: BarData = convert_rx.recv().await
                                                     .expect("Failed to receive compressed data")
                                                     .into();
+
                 let response = GetMarketDataResponse {
                     data: Some(data),
                 };
@@ -230,10 +233,16 @@ impl Trade for TradeService {
         .value()
         .subscribe();
         tokio::task::spawn(async move {
+            let beg: tokio::time::Instant = tokio::time::Instant::now();
+            let mut last = beg;
             while let Ok(msg) = output.recv().await {
+                let now = tokio::time::Instant::now();
+                let duration = now.duration_since(last);
+                tracing::warn!("here duration: {:?}ms", duration.as_millis());
                 if let Err(e) = tx.send(Ok(msg)).await {
-                    tracing::warn!("channel closed: {}", e);
+                    // tracing::warn!("channel closed: {}", e);
                 }
+                last = now;
             }
         });
         Ok(Response::new(ReceiverStream::new(rx)))
@@ -255,7 +264,7 @@ async fn start_server(service_inner: TradeService, port: usize) -> anyhow::Resul
 }
 
 fn main() {
-    let subscriber = tracing_subscriber::FmtSubscriber::new();
+    let subscriber = tracing_subscriber::FmtSubscriber::new().with(tracing_subscriber::fmt::layer().pretty());
     // use that subscriber to process traces emitted after this point
     tracing::subscriber::set_global_default(subscriber).expect("logger cannot be set");
     let working_dir = std::env::current_dir()
@@ -267,19 +276,18 @@ fn main() {
         .expect("Failed to get current directory");
 
     let file = File::open(working_dir).expect("Unable to open config file");
+    let reader = BufReader::new(file);
 
+    let config: crate::websocket_manager::websocket_manager::BinanceServerConfig =
+        serde_yaml::from_reader(reader).expect("Unable to parse YAML");
+    // let max_threads = config.max_threads.clone();
+    let config_clone = config.clone();
     let rt = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(4) // 设置 worker 线程数量，例如：4
+        .worker_threads(config.max_threads) // 设置 worker 线程数量，例如：4
         .enable_all()
         .build()
         .unwrap();
     rt.block_on(async move {
-        let reader = BufReader::new(file);
-
-        let config: crate::websocket_manager::websocket_manager::BinanceServerConfig =
-            serde_yaml::from_reader(reader).expect("Unable to parse YAML");
-        // let max_threads = config.max_threads.clone();
-        let config_clone = config.clone();
         let port = config_clone.port;
         let metrics_port = config_clone.metrics_server_port;
         let market = TradeService {

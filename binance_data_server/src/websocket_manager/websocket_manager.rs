@@ -97,7 +97,7 @@ impl BinanceWebsocketManager {
             .or_insert_with(|| {
                 let (tx, _) = tokio::sync::broadcast::channel(buffer_size);
                 let tx_clone = tx.clone();
-                let _ = tokio::spawn(async move {
+                tokio::spawn(async move {
                     let keep_running = AtomicBool::new(true);
                     let listen_key = match option {
                         BinanceWebsocketOption::AggTrade(symbol) => {
@@ -106,7 +106,7 @@ impl BinanceWebsocketManager {
                         BinanceWebsocketOption::Trade(symbol) => trade_stream(symbol.as_str()),
                         _ => "".to_string(), // this will not be touched anyway
                     };
-                    let mut ws = WebSockets::new(|event| {
+                    let mut ws = WebSockets::new(|event: WebsocketEvent| {
                         if let Err(_e) = tx.send(event) {
                             MISSING_VALUE_BY_CHANNEL.inc();
                         }
