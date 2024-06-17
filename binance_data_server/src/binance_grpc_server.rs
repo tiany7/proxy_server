@@ -22,7 +22,7 @@ use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
 use tonic::{transport::Server, Request, Response, Status};
 use tracing_subscriber::layer::SubscriberExt;
 
-use crate::pipelines::pipelines::{ChannelData, ResamplingTransformer, Transformer};
+use crate::pipelines::pipelines::{DataSlice, ChannelData, ResamplingTransformer, Transformer};
 use crate::websocket_manager::websocket_manager::BinanceWebsocketManager;
 
 fn parse_f64_or_default(input: &str) -> f64 {
@@ -215,11 +215,13 @@ impl Trade for TradeService {
         // this task pulls the data from transformer and sends it to the grpc server
         tokio::spawn(async move {
             loop {
-                
-                let data: BarData = convert_rx.recv().await
+                let data: DataSlice = convert_rx.recv().await
                                                     .expect("Failed to receive compressed data")
                                                     .into();
-
+                let data = data.to_bar_data();
+                let system_time = std::time::SystemTime::now();
+                let duration_since_epoch = system_time.duration_since(std::time::UNIX_EPOCH).expect("Time went backwards").as_millis() as u64;
+                tracing::info!("time diff: {:?}ms", duration_since_epoch - data.close_time);
                 let response = GetMarketDataResponse {
                     data: Some(data),
                 };
@@ -233,16 +235,10 @@ impl Trade for TradeService {
         .value()
         .subscribe();
         tokio::task::spawn(async move {
-            let beg: tokio::time::Instant = tokio::time::Instant::now();
-            let mut last = beg;
             while let Ok(msg) = output.recv().await {
-                let now = tokio::time::Instant::now();
-                let duration = now.duration_since(last);
-                tracing::warn!("here duration: {:?}ms", duration.as_millis());
                 if let Err(e) = tx.send(Ok(msg)).await {
                     // tracing::warn!("channel closed: {}", e);
                 }
-                last = now;
             }
         });
         Ok(Response::new(ReceiverStream::new(rx)))
@@ -264,7 +260,8 @@ async fn start_server(service_inner: TradeService, port: usize) -> anyhow::Resul
 }
 
 fn main() {
-    let subscriber = tracing_subscriber::FmtSubscriber::new().with(tracing_subscriber::fmt::layer().pretty());
+    let subscriber =
+        tracing_subscriber::FmtSubscriber::new().with(tracing_subscriber::fmt::layer().pretty());
     // use that subscriber to process traces emitted after this point
     tracing::subscriber::set_global_default(subscriber).expect("logger cannot be set");
     let working_dir = std::env::current_dir()

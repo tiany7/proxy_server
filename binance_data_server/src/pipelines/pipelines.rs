@@ -2,32 +2,33 @@ pub mod trade {
     include!("../../../proto/generated_code/trade.rs");
 }
 
-use std::any::Any;
 
+use std::any::Any;
 use std::io::Write;
 use std::sync::Arc;
 use std::vec::Vec;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Ok, Result};
-
 use arrow::record_batch::RecordBatch;
 use async_trait::async_trait;
-
 use futures::SinkExt;
 use tokio::sync::{mpsc, Mutex};
 use tracing::info;
-
 use metrics_server::MISSING_VALUES_COUNT;
+use trade::AggTradeData;
+use trade::BarData;
+use trade::Column;
 
-// 定义一个动态数据类型
+use crate::pipelines::utils::ReadPriorityRwLock;
+
+
 type DynData = Box<dyn Any + Send + Sync>;
 
 // 定义一个数据结构，包装了动态数据
 pub struct ChannelData(DynData);
 
-use trade::AggTradeData;
-use trade::BarData;
-use trade::Column;
+
 
 struct SampleData {
     name: String,
@@ -77,9 +78,11 @@ impl From<ChannelData> for BarData {
     }
 }
 
+
+
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
-struct DataSlice {
+pub struct DataSlice {
     low_price: f64,
     high_price: f64,
     open_price: f64,
@@ -119,6 +122,12 @@ impl Default for DataSlice {
     }
 }
 
+impl From<ChannelData> for DataSlice {
+    fn from(val: ChannelData) -> Self {
+        *val.0.downcast::<DataSlice>().unwrap()
+    }
+}
+
 impl DataSlice {
     // 添加一个方法来重置所有数据
     fn reset(&mut self) {
@@ -138,6 +147,25 @@ impl DataSlice {
         self.close_time = 0;
         self.last = None;
     }
+
+    pub fn to_bar_data(&self) -> BarData {
+        BarData {
+            low: self.low_price,
+            high: self.high_price,
+            open: self.open_price,
+            close: self.close_price,
+            volume: self.volume,
+            quote_asset_volume: self.quote_asset_volume,
+            number_of_trades: self.number_of_trades,
+            taker_buy_base_asset_volume: self.taker_buy_base_asset_volume,
+            taker_buy_quote_asset_volume: self.taker_buy_quote_asset_volume,
+            min_id: self.min_id,
+            max_id: self.max_id,
+            missing_count: self.missing_count,
+            open_time: self.open_time,
+            close_time: self.close_time,
+        }
+    }
 }
 
 pub fn create_channel(capacity: usize) -> (mpsc::Sender<ChannelData>, mpsc::Receiver<ChannelData>) {
@@ -155,7 +183,6 @@ pub trait Transformer {
 pub struct ResamplingTransformerInner {
     // in milliseconds, this is used to control the granularity of the data
     input: Vec<mpsc::Receiver<ChannelData>>,
-    output: Vec<mpsc::Sender<ChannelData>>,
     granularity: chrono::Duration,
 }
 
@@ -167,6 +194,7 @@ pub struct CompressionTransformerInner {
 
 pub struct ResamplingTransformer {
     inner: Arc<Mutex<ResamplingTransformerInner>>,
+    output: Vec<mpsc::Sender<ChannelData>>,  // this need not to be placed in inner
 }
 
 pub struct CompressionTransformer {
@@ -183,9 +211,9 @@ impl ResamplingTransformer {
         ResamplingTransformer {
             inner: Arc::new(Mutex::new(ResamplingTransformerInner {
                 input,
-                output,
                 granularity,
             })),
+            output,
         }
     }
 }
@@ -240,10 +268,10 @@ impl Transformer for ResamplingTransformer {
         let this_time_gap = this.granularity;
         drop(this);
         // create a shared data structure to allow routinely update
-        let data = Arc::new(tokio::sync::Mutex::new(DataSlice::default()));
+        let data = Arc::new(ReadPriorityRwLock::new(DataSlice::default()));
         let data_clone = data.clone();
         let inner_clone = self.inner.clone();
-        tokio::spawn(async move{
+        tokio::spawn(async move {
             loop {
                 let mut ticket = inner_clone.lock().await;
                 let agg_trade = ticket.input[0].recv().await;
@@ -251,106 +279,81 @@ impl Transformer for ResamplingTransformer {
                 if agg_trade.is_none() {
                     break;
                 }
+            
                 let agg_trade: AggTradeData = agg_trade.unwrap().into();
                 // let system_time = std::time::SystemTime::now();
                 // let duration_since_epoch = system_time.duration_since(std::time::UNIX_EPOCH).expect("Time went backwards").as_millis() as u64;
-                // tracing::info!("time diff: {:?}ms", duration_since_epoch - agg_trade.trade_time);
-                let mut this_data = data.lock().await;
-                let mut copied_data = (*this_data).clone();
+                // tracing::warn!("time diff: {:?}ms", duration_since_epoch - agg_trade.trade_time);
+                let mut this_data = data.write().await;
                 // count number of trades
-                copied_data.number_of_trades += 1;
-                copied_data.close_price = agg_trade.price;
-                copied_data.close_time = agg_trade.trade_time;
+                this_data.number_of_trades += 1;
+                this_data.close_price = agg_trade.price;
+                this_data.close_time = agg_trade.trade_time;
                 // update the min_id and max_id
-                if copied_data.last.is_some() {
-                    copied_data.missing_count += agg_trade.aggregated_trade_id - copied_data.last.unwrap() - 1;
+                if this_data.last.is_some() {
+                    this_data.missing_count +=
+                        agg_trade.aggregated_trade_id - this_data.last.unwrap() - 1;
                 }
-    
+
                 this_data.last = Some(agg_trade.aggregated_trade_id);
-    
-                if agg_trade.price < copied_data.low_price {
-                    copied_data.low_price = agg_trade.price;
-                    copied_data.min_id = agg_trade.aggregated_trade_id;
+
+                if agg_trade.price < this_data.low_price {
+                    this_data.low_price = agg_trade.price;
+                    this_data.min_id = agg_trade.aggregated_trade_id;
                 }
-    
-                if agg_trade.price > copied_data.high_price {
-                    copied_data.high_price = agg_trade.price;
-                    copied_data.max_id = agg_trade.aggregated_trade_id;
+
+                if agg_trade.price > this_data.high_price {
+                    this_data.high_price = agg_trade.price;
+                    this_data.max_id = agg_trade.aggregated_trade_id;
                 }
-    
-                if copied_data.number_of_trades == 1 {
-                    copied_data.open_price = agg_trade.price;
-                    copied_data.open_time = agg_trade.trade_time;
+
+                if this_data.number_of_trades == 1 {
+                    this_data.open_price = agg_trade.price;
+                    this_data.open_time = agg_trade.trade_time;
                 }
-    
-                copied_data.volume += agg_trade.quantity;
-                copied_data.quote_asset_volume += agg_trade.price * agg_trade.quantity;
-    
-                copied_data.taker_buy_base_asset_volume += {
+
+                this_data.volume += agg_trade.quantity;
+                this_data.quote_asset_volume += agg_trade.price * agg_trade.quantity;
+
+                this_data.taker_buy_base_asset_volume += {
                     if !agg_trade.is_buyer_maker {
                         agg_trade.quantity
                     } else {
                         0.0
                     }
                 };
-    
-                copied_data.taker_buy_quote_asset_volume += {
+
+                this_data.taker_buy_quote_asset_volume += {
                     if !agg_trade.is_buyer_maker {
                         agg_trade.price * agg_trade.quantity
                     } else {
                         0.0
                     }
                 };
-                *this_data = copied_data;
             }
             // write back to the shared data structure
         });
-        let inner_clone_again = self.inner.clone();
+        let tx = self.output[0].clone();
         // launch another task to routinely update the data
         tokio::spawn(async move {
             let interval_duration = this_time_gap.to_std().unwrap();
             let mut interval = tokio::time::interval(interval_duration);
-    
-            info!("Resampling transformer started with time gap: {:?}", interval_duration);
-    
+
+            info!(
+                "Resampling transformer started with time gap: {:?}",
+                interval_duration
+            );
+            interval.tick().await;
             loop {
-                tokio::select! {
-                    _ = interval.tick() => {
-                        let mut this_data = data_clone.lock().await;
-                        let copied_data = (*this_data).clone();
-                        this_data.reset();
-    
-                        let ticket = inner_clone_again.lock().await;
-                        if copied_data.missing_count != 0 {
-                            MISSING_VALUES_COUNT.inc_by(copied_data.missing_count);
-                        }
-    
-                        if let Err(e) = ticket.output[0].send(ChannelData::new(BarData {
-                            low: copied_data.low_price,
-                            high: copied_data.high_price,
-                            open: copied_data.open_price,
-                            close: copied_data.close_price,
-                            volume: copied_data.volume,
-                            quote_asset_volume: copied_data.quote_asset_volume,
-                            number_of_trades: copied_data.number_of_trades,
-                            taker_buy_base_asset_volume: copied_data.taker_buy_base_asset_volume,
-                            taker_buy_quote_asset_volume: copied_data.taker_buy_quote_asset_volume,
-                            min_id: copied_data.min_id,
-                            max_id: copied_data.max_id,
-                            missing_count: copied_data.missing_count,
-                            open_time: copied_data.open_time,
-                            close_time: copied_data.close_time,
-                        })).await {
-                            info!("pipe closed {:?}", e);
-                            break;
-                        }
-    
-                        
-                    },
-                    else => {
-                        // Handle other asynchronous tasks if necessary
-                    }
+                interval.tick().await;
+                let mut this_data = data_clone.read().await;
+                let copied_data = (*this_data).clone();
+                drop(this_data);
+                if let Err(e) = tx.send(ChannelData::new(copied_data)).await {
+                    info!("pipe closed {:?}", e);
+                    break;
                 }
+                
             }
         });
         Ok(())
@@ -413,5 +416,4 @@ mod tests {
 
     use super::*;
     use tokio::{spawn, test};
-   
 }
