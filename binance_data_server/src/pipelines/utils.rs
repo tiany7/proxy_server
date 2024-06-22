@@ -2,6 +2,7 @@ use std::sync::Arc;
 use tokio::sync::{RwLock as AsyncRwLock, Mutex as AsyncMutex, Notify};
 use tokio::task;
 
+#[allow(dead_code)]
 pub struct ReadPriorityRwLock<T> {
     inner: Arc<Inner<T>>,
 }

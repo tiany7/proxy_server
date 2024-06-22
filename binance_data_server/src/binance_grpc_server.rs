@@ -133,7 +133,7 @@ impl Trade for TradeService {
         let config_ticket = this_config.lock().await;
         let this_config = config_ticket.clone();
         drop(config_ticket);
-        let (tx, rx) = mpsc::channel(5);
+        let (tx, rx) = mpsc::channel(100);
 
         let config_clone = this_config.clone();
         let request = request.into_inner();

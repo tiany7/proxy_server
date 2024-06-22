@@ -5,20 +5,23 @@ pub mod trade {
 
 use std::any::Any;
 use std::io::Write;
+use std::ops::Add;
 use std::sync::Arc;
 use std::vec::Vec;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Ok, Result};
-use arrow::record_batch::RecordBatch;
 use async_trait::async_trait;
+use crossbeam::atomic::AtomicCell;
+use crossbeam::sync::ShardedLockReadGuard;
 use futures::SinkExt;
 use tokio::sync::{mpsc, Mutex};
-use tracing::info;
+use tracing::{error, info};
 use metrics_server::MISSING_VALUES_COUNT;
 use trade::AggTradeData;
 use trade::BarData;
 use trade::Column;
+use tokio_schedule::Job;
 
 use crate::pipelines::utils::ReadPriorityRwLock;
 
@@ -35,7 +38,7 @@ struct SampleData {
     age: i32,
 }
 
-// 实现 ChannelData 的方法
+
 impl ChannelData {
     pub fn new<T: 'static + std::marker::Send + std::marker::Sync>(data: T) -> Self {
         ChannelData(Box::new(data))
@@ -48,11 +51,6 @@ impl From<ChannelData> for SampleData {
     }
 }
 
-impl From<ChannelData> for RecordBatch {
-    fn from(val: ChannelData) -> Self {
-        *val.0.downcast::<RecordBatch>().unwrap()
-    }
-}
 
 impl From<ChannelData> for AggTradeData {
     fn from(val: ChannelData) -> Self {
@@ -81,7 +79,7 @@ impl From<ChannelData> for BarData {
 
 
 #[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct DataSlice {
     low_price: f64,
     high_price: f64,
@@ -187,7 +185,6 @@ pub struct ResamplingTransformerInner {
 }
 
 pub struct CompressionTransformerInner {
-    // in milliseconds, this is used to control the granularity of the data
     input: Vec<mpsc::Receiver<ChannelData>>,
     output: Vec<mpsc::Sender<ChannelData>>,
 }
@@ -229,18 +226,8 @@ impl CompressionTransformer {
         }
     }
 
-    fn record_batch_to_bytes(record_batch: &RecordBatch) -> Result<Vec<u8>, anyhow::Error> {
-        let mut buffer = std::io::Cursor::new(Vec::new());
-        // 创建IPC文件写入器
-        let mut writer =
-            arrow::ipc::writer::FileWriter::try_new(&mut buffer, &record_batch.schema())?;
-        writer.write(record_batch)?;
-        writer
-            .finish()
-            .map_err(|e| anyhow::anyhow!("finish error: {}", e))?;
-        drop(writer);
-        let buffer = buffer.into_inner();
-        Ok(buffer)
+    fn record_batch_to_bytes() -> Result<Vec<u8>, anyhow::Error> {
+        unimplemented!();
     }
 }
 
@@ -248,29 +235,23 @@ impl CompressionTransformer {
 impl Transformer for ResamplingTransformer {
     #[tracing::instrument(skip(self))]
     async fn transform(&self) -> Result<()> {
-        // let mut low_price = f64::MAX;
-        // let mut high_price = f64::MIN;
-        // let mut open_price = 0.0;
-        // let mut close_price = 0.0;
-        // let mut volume = 0.0;
-        // let mut quote_asset_volume = 0.0;
-        // let mut number_of_trades = 0;
-        // let mut taker_buy_base_asset_volume = 0.0;
-        // let mut taker_buy_quote_asset_volume = 0.0;
-        // let mut min_id = 0;
-        // let mut max_id = 0;
-        // let mut missing_count = 0;
-        // let mut open_time = 0;
-        // let mut close_time = 0;
-
-        // let mut last: Option<u64> = None;
         let this = self.inner.lock().await;
         let this_time_gap = this.granularity;
         drop(this);
+
         // create a shared data structure to allow routinely update
-        let data = Arc::new(ReadPriorityRwLock::new(DataSlice::default()));
+        let data = Arc::new(AtomicCell::new(DataSlice::default()));
         let data_clone = data.clone();
+        let atomic_lock = Arc::new(AtomicBool::new(false));
+        let atomic_lock_timer = atomic_lock.clone();
+        let should_quit = Arc::new(AtomicBool::new(false));
+        let should_quit_clone = should_quit.clone();
+        
         let inner_clone = self.inner.clone();
+        // timer task
+        let notify = Arc::new(tokio::sync::Notify::new());
+        let notify_clone = notify.clone();
+
         tokio::spawn(async move {
             loop {
                 let mut ticket = inner_clone.lock().await;
@@ -281,41 +262,42 @@ impl Transformer for ResamplingTransformer {
                 }
             
                 let agg_trade: AggTradeData = agg_trade.unwrap().into();
-                // let system_time = std::time::SystemTime::now();
-                // let duration_since_epoch = system_time.duration_since(std::time::UNIX_EPOCH).expect("Time went backwards").as_millis() as u64;
-                // tracing::warn!("time diff: {:?}ms", duration_since_epoch - agg_trade.trade_time);
-                let mut this_data = data.write().await;
+                // while atomic_lock.compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed).is_err() {
+                //     continue;
+                // }
+                let this_data = data.load();
+                let mut copied_data = this_data;
                 // count number of trades
-                this_data.number_of_trades += 1;
-                this_data.close_price = agg_trade.price;
-                this_data.close_time = agg_trade.trade_time;
+                copied_data.number_of_trades += 1;
+                copied_data.close_price = agg_trade.price;
+                copied_data.close_time = agg_trade.trade_time;
                 // update the min_id and max_id
-                if this_data.last.is_some() {
-                    this_data.missing_count +=
-                        agg_trade.aggregated_trade_id - this_data.last.unwrap() - 1;
+                if copied_data.last.is_some() {
+                    copied_data.missing_count +=
+                        agg_trade.aggregated_trade_id - copied_data.last.unwrap() - 1;
                 }
 
-                this_data.last = Some(agg_trade.aggregated_trade_id);
+                copied_data.last = Some(agg_trade.aggregated_trade_id);
 
-                if agg_trade.price < this_data.low_price {
-                    this_data.low_price = agg_trade.price;
-                    this_data.min_id = agg_trade.aggregated_trade_id;
+                if agg_trade.price < copied_data.low_price {
+                    copied_data.low_price = agg_trade.price;
+                    copied_data.min_id = agg_trade.aggregated_trade_id;
                 }
 
-                if agg_trade.price > this_data.high_price {
-                    this_data.high_price = agg_trade.price;
-                    this_data.max_id = agg_trade.aggregated_trade_id;
+                if agg_trade.price > copied_data.high_price {
+                    copied_data.high_price = agg_trade.price;
+                    copied_data.max_id = agg_trade.aggregated_trade_id;
                 }
 
-                if this_data.number_of_trades == 1 {
-                    this_data.open_price = agg_trade.price;
-                    this_data.open_time = agg_trade.trade_time;
+                if copied_data.number_of_trades == 1 {
+                    copied_data.open_price = agg_trade.price;
+                    copied_data.open_time = agg_trade.trade_time;
                 }
 
-                this_data.volume += agg_trade.quantity;
-                this_data.quote_asset_volume += agg_trade.price * agg_trade.quantity;
+                copied_data.volume += agg_trade.quantity;
+                copied_data.quote_asset_volume += agg_trade.price * agg_trade.quantity;
 
-                this_data.taker_buy_base_asset_volume += {
+                copied_data.taker_buy_base_asset_volume += {
                     if !agg_trade.is_buyer_maker {
                         agg_trade.quantity
                     } else {
@@ -323,39 +305,62 @@ impl Transformer for ResamplingTransformer {
                     }
                 };
 
-                this_data.taker_buy_quote_asset_volume += {
+                copied_data.taker_buy_quote_asset_volume += {
                     if !agg_trade.is_buyer_maker {
                         agg_trade.price * agg_trade.quantity
                     } else {
                         0.0
                     }
                 };
+                // write back to the shared data structure
+                data.store(copied_data);
+                // if the lock is acquired, notify the other task
+                if atomic_lock.compare_exchange_weak(true, false, Ordering::Relaxed, Ordering::Relaxed).is_ok() {
+                    notify.notify_one();
+                    tokio::task::yield_now().await;
+                }
+                // let system_time = std::time::SystemTime::now();
+                // let duration_since_epoch = system_time.duration_since(std::time::UNIX_EPOCH).expect("Time went backwards").as_millis() as u64;
+                // delay_duration += duration_since_epoch - agg_trade.trade_time;
+                // tracing::error!("time diff: {:?}ms", duration_since_epoch - agg_trade.trade_time);
             }
             // write back to the shared data structure
         });
         let tx = self.output[0].clone();
-        // launch another task to routinely update the data
-        tokio::spawn(async move {
-            let interval_duration = this_time_gap.to_std().unwrap();
-            let mut interval = tokio::time::interval(interval_duration);
+        tokio::spawn(async move{
+            let interval_duration = this_time_gap.to_std().unwrap().add(std::time::Duration::from_millis(5));
+                let mut interval = tokio::time::interval(interval_duration);
 
-            info!(
+                info!(
                 "Resampling transformer started with time gap: {:?}",
                 interval_duration
             );
-            interval.tick().await;
             loop {
                 interval.tick().await;
-                let mut this_data = data_clone.read().await;
-                let copied_data = (*this_data).clone();
-                drop(this_data);
-                if let Err(e) = tx.send(ChannelData::new(copied_data)).await {
-                    info!("pipe closed {:?}", e);
+                if should_quit_clone.load(Ordering::Relaxed) {
+                    break;
+                }
+                while atomic_lock_timer.compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
+                    
+                }
+            }
+        }
+        );
+        // launch another task to routinely update the data
+        tokio::spawn(async move {
+            loop {
+                notify_clone.notified().await;
+                let this_data = data_clone.load();
+                data_clone.store(DataSlice::default());
+                if tx.send(ChannelData::new(this_data)).await.is_err() {
+                    should_quit.store(true, Ordering::Relaxed);
                     break;
                 }
                 
             }
         });
+
+
         Ok(())
     }
 }
