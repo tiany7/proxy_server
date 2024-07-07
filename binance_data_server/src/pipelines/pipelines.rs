@@ -2,42 +2,58 @@ pub mod trade {
     include!("../../../proto/generated_code/trade.rs");
 }
 
-
 use std::any::Any;
 use std::io::Write;
 use std::ops::Add;
+use std::result::Result::Ok;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::vec::Vec;
-use std::sync::atomic::{AtomicBool, Ordering};
 
-use anyhow::{Ok, Result};
+use anyhow::Result;
 use async_trait::async_trait;
 use crossbeam::atomic::AtomicCell;
 use crossbeam::sync::ShardedLockReadGuard;
 use futures::SinkExt;
-use tokio::sync::{mpsc, Mutex};
-use tracing::{error, info};
 use metrics_server::MISSING_VALUES_COUNT;
+use tokio::sync::{mpsc, Mutex};
+use tokio_schedule::Job;
+use tracing::{error, info};
 use trade::AggTradeData;
 use trade::BarData;
 use trade::Column;
-use tokio_schedule::Job;
 
-use crate::pipelines::utils::ReadPriorityRwLock;
+use super::utils;
 
+#[derive(Debug, Clone)]
+pub struct Segment {
+    pub start: u64,
+    pub end: u64,
+}
+
+impl Segment {
+    pub fn try_new(start: u64, end: u64) -> Result<Self, anyhow::Error> {
+        if end < start {
+            Err(anyhow::anyhow!("End must be greater than start"))
+        } else {
+            Ok(Segment { start, end })
+        }
+    }
+
+    pub fn size(&self) -> u64 {
+        self.end - self.start
+    }
+}
 
 type DynData = Box<dyn Any + Send + Sync>;
 
-// 定义一个数据结构，包装了动态数据
+// wrap the dynamic data
 pub struct ChannelData(DynData);
-
-
 
 struct SampleData {
     name: String,
     age: i32,
 }
-
 
 impl ChannelData {
     pub fn new<T: 'static + std::marker::Send + std::marker::Sync>(data: T) -> Self {
@@ -50,7 +66,6 @@ impl From<ChannelData> for SampleData {
         *val.0.downcast::<SampleData>().unwrap()
     }
 }
-
 
 impl From<ChannelData> for AggTradeData {
     fn from(val: ChannelData) -> Self {
@@ -76,7 +91,17 @@ impl From<ChannelData> for BarData {
     }
 }
 
+impl From<ChannelData> for utils::Segment {
+    fn from(val: ChannelData) -> Self {
+        *val.0.downcast::<utils::Segment>().unwrap()
+    }
+}
 
+impl From<ChannelData> for Vec<AggTradeData> {
+    fn from(val: ChannelData) -> Self {
+        *val.0.downcast::<Vec<AggTradeData>>().unwrap()
+    }
+}
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
@@ -166,11 +191,6 @@ impl DataSlice {
     }
 }
 
-pub fn create_channel(capacity: usize) -> (mpsc::Sender<ChannelData>, mpsc::Receiver<ChannelData>) {
-    let (tx, rx) = mpsc::channel(capacity);
-    (tx, rx)
-}
-
 #[async_trait]
 pub trait Transformer {
     // this is blocking
@@ -191,7 +211,7 @@ pub struct CompressionTransformerInner {
 
 pub struct ResamplingTransformer {
     inner: Arc<Mutex<ResamplingTransformerInner>>,
-    output: Vec<mpsc::Sender<ChannelData>>,  // this need not to be placed in inner
+    output: Vec<mpsc::Sender<ChannelData>>, // this need not to be placed in inner
 }
 
 pub struct CompressionTransformer {
@@ -225,10 +245,6 @@ impl CompressionTransformer {
             inner: Arc::new(Mutex::new(CompressionTransformerInner { input, output })),
         }
     }
-
-    fn record_batch_to_bytes() -> Result<Vec<u8>, anyhow::Error> {
-        unimplemented!();
-    }
 }
 
 #[async_trait]
@@ -238,7 +254,7 @@ impl Transformer for ResamplingTransformer {
         let this = self.inner.lock().await;
         let this_time_gap = this.granularity;
         drop(this);
-
+        let recovery_enabled = self.output.len() >= 2;
         // create a shared data structure to allow routinely update
         let data = Arc::new(AtomicCell::new(DataSlice::default()));
         let data_clone = data.clone();
@@ -246,13 +262,16 @@ impl Transformer for ResamplingTransformer {
         let atomic_lock_timer = atomic_lock.clone();
         let should_quit = Arc::new(AtomicBool::new(false));
         let should_quit_clone = should_quit.clone();
-        
+        let sent_to_downstream = Arc::new(tokio::sync::Notify::new());
+        let sent_to_downstream_clone = sent_to_downstream.clone();
         let inner_clone = self.inner.clone();
         // timer task
         let notify = Arc::new(tokio::sync::Notify::new());
         let notify_clone = notify.clone();
-
+        let mut cursor = 0; // this is the global cursor that records the current id position
         tokio::spawn(async move {
+            let mut missing_segments = vec![];
+            let mut nr_missing = 0;
             loop {
                 let mut ticket = inner_clone.lock().await;
                 let agg_trade = ticket.input[0].recv().await;
@@ -260,7 +279,7 @@ impl Transformer for ResamplingTransformer {
                 if agg_trade.is_none() {
                     break;
                 }
-            
+
                 let agg_trade: AggTradeData = agg_trade.unwrap().into();
                 // while atomic_lock.compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed).is_err() {
                 //     continue;
@@ -271,10 +290,19 @@ impl Transformer for ResamplingTransformer {
                 copied_data.number_of_trades += 1;
                 copied_data.close_price = agg_trade.price;
                 copied_data.close_time = agg_trade.trade_time;
-                // update the min_id and max_id
-                if copied_data.last.is_some() {
-                    copied_data.missing_count +=
-                        agg_trade.aggregated_trade_id - copied_data.last.unwrap() - 1;
+                // update the cursor
+                if cursor == 0 {
+                    cursor = agg_trade.aggregated_trade_id;
+                } else {
+                    if agg_trade.aggregated_trade_id - cursor > 1 {
+                        if let Ok(missed) =
+                            utils::Segment::try_new(cursor, agg_trade.aggregated_trade_id)
+                        {
+                            missing_segments.push(missed.clone());
+                            nr_missing += missed.size();
+                        }
+                    }
+                    cursor = agg_trade.aggregated_trade_id;
                 }
 
                 copied_data.last = Some(agg_trade.aggregated_trade_id);
@@ -315,9 +343,95 @@ impl Transformer for ResamplingTransformer {
                 // write back to the shared data structure
                 data.store(copied_data);
                 // if the lock is acquired, notify the other task
-                if atomic_lock.compare_exchange_weak(true, false, Ordering::Relaxed, Ordering::Relaxed).is_ok() {
+                if atomic_lock
+                    .compare_exchange_weak(true, false, Ordering::Relaxed, Ordering::Relaxed)
+                    .is_ok()
+                {
+                    // perform the recovery process if needed
+                    // >= 2 : the disaster recovery is enabled
+                    // unlikely
+
+                    // if recovery_enabled && missing_segments.len() > 0 {
+                    //     let mut start_id = 0;
+                    //     let mut end_id = 0;
+                    //     if let Some(ref fst) = missing_segments.first() {
+                    //         start_id = fst.start;
+                    //     }
+                    //     if let Some(ref fst) = missing_segments.last() {
+                    //         end_id = fst.end;
+                    //     }
+                    //     if let Err(e) = self.output[1]
+                    //         .send(ChannelData::new(utils::Segment::new(start_id, end_id)))
+                    //         .await
+                    //     {
+                    //         tracing::error!("Error recovering segment: {:?}", e);
+                    //     }
+                    //     let mut ticket = inner_clone.lock().await;
+                    //     if let Some(c_data) = ticket.input[1].recv().await {
+                    //         let data_vec: Vec<AggTradeData> = c_data.into();
+                    //         let data_map = data_vec
+                    //             .into_iter()
+                    //             .map(|x| (x.aggregated_trade_id, x))
+                    //             .collect::<std::collections::HashMap<u64, AggTradeData>>();
+                    //         let mut copied_data = data.load();
+                    //         missing_segments.iter().for_each(|x| {
+                    //             for i in x.start..x.end {
+                    //                 if let Some(agg_trade) = data_map.get(&i) {
+                    //                     copied_data.number_of_trades += 1;
+                    //                     nr_missing -= 1;
+                    //                     // copied_data.last = Some(agg_trade.aggregated_trade_id);
+                    //                     if agg_trade.price < copied_data.low_price {
+                    //                         copied_data.low_price = agg_trade.price;
+                    //                         copied_data.min_id = agg_trade.aggregated_trade_id;
+                    //                     }
+
+                    //                     if agg_trade.price > copied_data.high_price {
+                    //                         copied_data.high_price = agg_trade.price;
+                    //                         copied_data.max_id = agg_trade.aggregated_trade_id;
+                    //                     }
+
+                    //                     if copied_data.open_time > agg_trade.trade_time {
+                    //                         copied_data.open_price = agg_trade.price;
+                    //                         copied_data.open_time = agg_trade.trade_time;
+                    //                     }
+                    //                     if copied_data.close_time < agg_trade.trade_time {
+                    //                         copied_data.close_price = agg_trade.price;
+                    //                         copied_data.close_time = agg_trade.trade_time;
+                    //                     }
+
+                    //                     copied_data.volume += agg_trade.quantity;
+                    //                     copied_data.quote_asset_volume +=
+                    //                         agg_trade.price * agg_trade.quantity;
+
+                    //                     copied_data.taker_buy_base_asset_volume += {
+                    //                         if !agg_trade.is_buyer_maker {
+                    //                             agg_trade.quantity
+                    //                         } else {
+                    //                             0.0
+                    //                         }
+                    //                     };
+
+                    //                     copied_data.taker_buy_quote_asset_volume += {
+                    //                         if !agg_trade.is_buyer_maker {
+                    //                             agg_trade.price * agg_trade.quantity
+                    //                         } else {
+                    //                             0.0
+                    //                         }
+                    //                     };
+                    //                     // write back to the shared data structure
+                    //                 }
+                    //             }
+                    //         });
+                    //     }
+                    //     data.store(copied_data);
+
+                    //     MISSING_VALUES_COUNT.inc_by(nr_missing as u64);
+                    //     missing_segments.clear();
+                    // }
+
                     notify.notify_one();
-                    tokio::task::yield_now().await;
+                    sent_to_downstream.notified().await;
+                    // tokio::task::yield_now().await;
                 }
                 // let system_time = std::time::SystemTime::now();
                 // let duration_since_epoch = system_time.duration_since(std::time::UNIX_EPOCH).expect("Time went backwards").as_millis() as u64;
@@ -327,11 +441,14 @@ impl Transformer for ResamplingTransformer {
             // write back to the shared data structure
         });
         let tx = self.output[0].clone();
-        tokio::spawn(async move{
-            let interval_duration = this_time_gap.to_std().unwrap().add(std::time::Duration::from_millis(5));
-                let mut interval = tokio::time::interval(interval_duration);
+        tokio::spawn(async move {
+            let interval_duration = this_time_gap
+                .to_std()
+                .unwrap()
+                .add(std::time::Duration::from_millis(5));
+            let mut interval = tokio::time::interval(interval_duration);
 
-                info!(
+            info!(
                 "Resampling transformer started with time gap: {:?}",
                 interval_duration
             );
@@ -340,12 +457,13 @@ impl Transformer for ResamplingTransformer {
                 if should_quit_clone.load(Ordering::Relaxed) {
                     break;
                 }
-                while atomic_lock_timer.compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
-                    
-                }
+                while atomic_lock_timer
+                    .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+                    .is_err()
+                {}
+                sent_to_downstream_clone.notify_one();
             }
-        }
-        );
+        });
         // launch another task to routinely update the data
         tokio::spawn(async move {
             loop {
@@ -356,10 +474,8 @@ impl Transformer for ResamplingTransformer {
                     should_quit.store(true, Ordering::Relaxed);
                     break;
                 }
-                
             }
         });
-
 
         Ok(())
     }

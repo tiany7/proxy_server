@@ -33,17 +33,23 @@ class TradeClient:
         response_stream = self.stub.GetMarketData(request)
         for rb in response_stream:
             yield rb
+    
+    def register_symbols(self, symbols):
+        request = trade_pb2.RegisterSymbolRequest(symbols=symbols)
+        response = self.stub.RegisterSymbol(request)
+        return response
 
 if __name__ == '__main__':
     client = TradeClient(host = "localhost", port=10000)
     start_time = time.time()
     import datetime
-    for trade in client.get_market_data('btcusdt', time_interval=3):
+    # register_response = client.register_symbols(["btcusdt", "ethusdt", "bnbusdt"])
+    for trade in client.get_market_data('btcusdt', time_interval=15):
         # if you want to convert to pandas dataframe
         # df = trade.to_pandas()
-        # print(trade)
-        pass
-        # time_from_timestamp = datetime.datetime.fromtimestamp(trade.data.close_time/1e3)
-        # current_time = datetime.datetime.now()
-        # time_difference = current_time - time_from_timestamp
-        # print(f"Time difference: {time_difference.total_seconds() * 1e3}")
+        print(trade)
+        # pass
+        time_from_timestamp = datetime.datetime.fromtimestamp(trade.data.close_time/1e3)
+        current_time = datetime.datetime.now()
+        time_difference = current_time - time_from_timestamp
+        print(f"Time difference: {time_difference.total_seconds() * 1e3}")

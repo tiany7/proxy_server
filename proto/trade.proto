@@ -34,6 +34,14 @@ message GetMarketDataRequest {
     TimeDuration granularity = 2;
 }
 
+message RegisterSymbolRequest {
+    repeated string symbols = 1;
+}
+
+message RegisterSymbolResponse {
+    
+}
+
 enum TimeUnit {
     MINUTES = 0;
     SECONDS = 1;
@@ -75,6 +83,7 @@ service Trade{
     rpc GetAggTradeStream(GetAggTradeRequest) returns (stream GetAggTradeResponse);
     rpc GetClientHeartbeat(stream GetHeartbeatRequest) returns (stream GetHeartbeatResponse);
     rpc GetMarketData(GetMarketDataRequest) returns (stream GetMarketDataResponse);
+    rpc RegisterSymbol(RegisterSymbolRequest) returns (RegisterSymbolResponse);
 }
 
 

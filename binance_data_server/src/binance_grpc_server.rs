@@ -1,6 +1,6 @@
+mod binance_data_manager;
 mod metrics;
 mod pipelines;
-mod websocket_manager;
 
 use std::fs::File;
 use std::io::BufReader;
@@ -13,7 +13,8 @@ use metrics_server::start_server as start_metrics_server;
 use pipelines::pipelines::trade::trade_server::{Trade, TradeServer};
 use pipelines::pipelines::trade::{
     AggTradeData, BarData, GetAggTradeRequest, GetAggTradeResponse, GetHeartbeatRequest,
-    GetHeartbeatResponse, GetMarketDataRequest, GetMarketDataResponse,
+    GetHeartbeatResponse, GetMarketDataRequest, GetMarketDataResponse, RegisterSymbolRequest,
+    RegisterSymbolResponse,
 };
 // Import the Decimal type
 
@@ -22,8 +23,8 @@ use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
 use tonic::{transport::Server, Request, Response, Status};
 use tracing_subscriber::layer::SubscriberExt;
 
-use crate::pipelines::pipelines::{DataSlice, ChannelData, ResamplingTransformer, Transformer};
-use crate::websocket_manager::websocket_manager::BinanceWebsocketManager;
+use crate::binance_data_manager::binance_data_manager::BinanceDataManager;
+use crate::pipelines::pipelines::{ChannelData, DataSlice, ResamplingTransformer, Transformer};
 
 fn parse_f64_or_default(input: &str) -> f64 {
     input.parse::<f64>().unwrap_or(0.0)
@@ -31,8 +32,8 @@ fn parse_f64_or_default(input: &str) -> f64 {
 
 #[derive(Debug, Clone)]
 pub struct TradeService {
-    pub config: Arc<Mutex<websocket_manager::websocket_manager::BinanceServerConfig>>,
-    pub binance_mgr: Arc<Mutex<BinanceWebsocketManager>>,
+    pub config: Arc<Mutex<binance_data_manager::binance_data_manager::BinanceServerConfig>>,
+    pub binance_mgr: Arc<Mutex<BinanceDataManager>>,
     // TODO(yuanhan): add a cache layer to control the connection number
     pub connections:
         dashmap::DashMap<String, tokio::sync::broadcast::Sender<GetMarketDataResponse>>,
@@ -60,7 +61,7 @@ impl Trade for TradeService {
         let binance_mgr_ticket = self.binance_mgr.lock().await;
         let mut ws = binance_mgr_ticket
             .subscribe(
-                websocket_manager::websocket_manager::BinanceWebsocketOption::AggTrade(
+                binance_data_manager::binance_data_manager::BinanceWebsocketOption::AggTrade(
                     requested_symbol,
                 ),
             )
@@ -167,6 +168,7 @@ impl Trade for TradeService {
             granularity
         );
         let key = fmt_key(&requested_symbol, "aggTrade", &granularity.to_string());
+        let binance_mgr_ptr = self.binance_mgr.clone();
         let mut output = self.connections.entry(key).or_insert_with(|| {
            // this pipe passes data from the websocket to the resampling transformer
             let (broadcast_tx, _) = tokio::sync::broadcast::channel(this_config.default_buffer_size);
@@ -181,11 +183,12 @@ impl Trade for TradeService {
                 let _ = resample_trans.transform().await;
             });
 
-            let binance_mgr = BinanceWebsocketManager::new(config_clone).await;
-            let mut ws = binance_mgr.subscribe(websocket_manager::websocket_manager::BinanceWebsocketOption::AggTrade(requested_symbol))
+            let binance_mgr = binance_mgr_ptr.lock().await;
+            let mut ws = binance_mgr.subscribe(binance_data_manager::binance_data_manager::BinanceWebsocketOption::AggTrade(requested_symbol))
                  .await
                   .unwrap();
-
+            drop(binance_mgr);
+            // TODO(yuanhan): spawn a new task to handle disaster recovery, close it upon termination
             // this background task pulls the info from the websocket and sends it to the resampling transformer
             tokio::spawn(async move {
              while let Ok(msg) = ws.recv().await {
@@ -214,14 +217,15 @@ impl Trade for TradeService {
             });
         // this task pulls the data from transformer and sends it to the grpc server
         tokio::spawn(async move {
+            let mut system_time = std::time::SystemTime::now();
             loop {
                 let data: DataSlice = convert_rx.recv().await
                                                     .expect("Failed to receive compressed data")
                                                     .into();
                 let data = data.to_bar_data();
-                let system_time = std::time::SystemTime::now();
-                let duration_since_epoch = system_time.duration_since(std::time::UNIX_EPOCH).expect("Time went backwards").as_millis() as u64;
-                tracing::info!("time diff: {:?}ms", duration_since_epoch - data.close_time);
+                let  now_time = std::time::SystemTime::now();
+                let duration_since_epoch = now_time.duration_since(system_time).expect("Time went backwards").as_millis() as u64;
+                system_time = now_time;
                 let response = GetMarketDataResponse {
                     data: Some(data),
                 };
@@ -242,6 +246,29 @@ impl Trade for TradeService {
             }
         });
         Ok(Response::new(ReceiverStream::new(rx)))
+    }
+
+    async fn register_symbol(
+        &self,
+        request: Request<RegisterSymbolRequest>,
+    ) -> Result<Response<RegisterSymbolResponse>, Status> {
+        let this_config = self.config.clone();
+        let config_ticket = this_config.lock().await;
+        drop(config_ticket);
+        let mut ticket = self.binance_mgr.lock().await;
+        let mut binance_mgr = (*ticket).clone();
+        drop(ticket);
+        let requested_symbols = request.into_inner().symbols;
+        binance_mgr
+            .register_many(
+                requested_symbols,
+                binance_data_manager::binance_data_manager::BinanceWebsocketOption::AggTrade(
+                    "".to_string(),
+                ),
+            )
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        Ok(Response::new(RegisterSymbolResponse {}))
     }
 }
 
@@ -275,7 +302,7 @@ fn main() {
     let file = File::open(working_dir).expect("Unable to open config file");
     let reader = BufReader::new(file);
 
-    let config: crate::websocket_manager::websocket_manager::BinanceServerConfig =
+    let config: crate::binance_data_manager::binance_data_manager::BinanceServerConfig =
         serde_yaml::from_reader(reader).expect("Unable to parse YAML");
     // let max_threads = config.max_threads.clone();
     let config_clone = config.clone();
@@ -289,7 +316,7 @@ fn main() {
         let metrics_port = config_clone.metrics_server_port;
         let market = TradeService {
             config: Arc::new(Mutex::new(config.clone())),
-            binance_mgr: Arc::new(Mutex::new(BinanceWebsocketManager::new(config).await)),
+            binance_mgr: Arc::new(Mutex::new(BinanceDataManager::new(config).await)),
             connections: dashmap::DashMap::new(),
         };
         let server_fut = tokio::spawn(async move {
