@@ -115,7 +115,7 @@ impl BinanceDataManager {
             });
             broadcast_tx
         });
-        
+
         tx
     }
     pub async fn subscribe(
@@ -188,7 +188,7 @@ impl BinanceDataManager {
                 .filter(|key| !self.connections.contains_key(*key))
                 .map(|key| {
                     let tx = self.register_symbol_stream(key);
-                    
+
                     (key.clone(), tx)
                 })
                 .collect();
@@ -204,9 +204,10 @@ impl BinanceDataManager {
                         binance::ws_model::WebsocketEventUntag::WebsocketEvent(event) => {
                             match event.clone() {
                                 binance::ws_model::WebsocketEvent::AggTrade(msg) => {
-                                    if let Some(tx) = sender_by_symbol
-                                        .get(agg_trade_stream(msg.symbol.to_lowercase().as_str()).as_str())
-                                    {
+                                    if let Some(tx) = sender_by_symbol.get(
+                                        agg_trade_stream(msg.symbol.to_lowercase().as_str())
+                                            .as_str(),
+                                    ) {
                                         if let Err(_e) = tx.try_send(event) {
                                             MISSING_VALUE_BY_CHANNEL.inc();
                                         }

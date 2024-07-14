@@ -52,16 +52,16 @@ serde_yaml = "0.8"
 
 [workspace]
 
-members = ["binance_data_server", "metrics_server"]
+members = ["binance_data_server", "metrics_server", "trade_client"]
 
 
 [[bin]]
 name = "data_server"
 path = "./binance_data_server/src/binance_grpc_server.rs"
 
-[[bin]]
-name = "client"
-path = "./client/binance_client.rs"
+# [[bin]]
+# name = "client"
+# path = "./client/binance_client.rs"
 
 
 

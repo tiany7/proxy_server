@@ -1,0 +1,26 @@
+[package]
+name = "my_python_package"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "my_python_package"
+crate-type = ["cdylib"]
+
+[dependencies.pyo3]
+version = "0.14"
+features = ["extension-module"]
+
+
+[dependencies]
+tonic = "0.11"
+prost = "0.12"
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tokio-stream = "0.1"
+tokio-tungstenite = "0.21"
+async-trait = "0.1.52"
+lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
+pyo3-asyncio = { version = "0.20", features = ["tokio-runtime"] }
+
+[build-dependencies]
+tonic-build = "0.11"

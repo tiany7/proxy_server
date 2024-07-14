@@ -14,7 +14,7 @@ use pipelines::pipelines::trade::trade_server::{Trade, TradeServer};
 use pipelines::pipelines::trade::{
     AggTradeData, BarData, GetAggTradeRequest, GetAggTradeResponse, GetHeartbeatRequest,
     GetHeartbeatResponse, GetMarketDataRequest, GetMarketDataResponse, RegisterSymbolRequest,
-    RegisterSymbolResponse,
+    RegisterSymbolResponse, PingRequest, PingResponse
 };
 // Import the Decimal type
 
@@ -269,6 +269,15 @@ impl Trade for TradeService {
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
         Ok(Response::new(RegisterSymbolResponse {}))
+    }
+    async fn ping(
+        &self,
+        request: Request<PingRequest>,
+    ) -> Result<Response<PingResponse>, Status> {
+        let req = request.into_inner();
+        Ok(Response::new(PingResponse {
+            pong: req.ping,
+        }))
     }
 }
 
