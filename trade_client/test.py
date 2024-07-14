@@ -5,7 +5,9 @@ async def main():
     client = TradeClientWrapper("http://localhost:10000")
 
 
-    result = client.ping()
+    result = await client.add_async(4, 2)
     print(f"Result of add: {result}")
+
+    
 
 asyncio.run(main())

@@ -1792,7 +1792,11 @@ dependencies = [
  "async-trait",
  "lazy_static",
  "prost",
+<<<<<<< HEAD
  "pyo3 0.14.5",
+=======
+ "pyo3",
+>>>>>>> [misc] native python client has been replaced by rust FFI
  "pyo3-asyncio",
  "tokio",
  "tokio-stream",
@@ -2271,8 +2275,11 @@ dependencies = [
  "lazy_static",
  "prometheus",
  "prost",
+<<<<<<< HEAD
  "pyo3 0.20.3",
  "pyo3-asyncio",
+=======
+>>>>>>> [misc] native python client has been replaced by rust FFI
  "rand 0.7.3",
  "rust_decimal",
  "serde",

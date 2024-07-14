@@ -152,7 +152,6 @@ impl From<ChannelData> for DataSlice {
 }
 
 impl DataSlice {
-    // 添加一个方法来重置所有数据
     fn reset(&mut self) {
         self.low_price = f64::MAX;
         self.high_price = f64::MIN;
@@ -445,7 +444,7 @@ impl Transformer for ResamplingTransformer {
             let interval_duration = this_time_gap
                 .to_std()
                 .unwrap()
-                .add(std::time::Duration::from_millis(5));
+                .add(std::time::Duration::from_millis(15));
             let mut interval = tokio::time::interval(interval_duration);
 
             info!(

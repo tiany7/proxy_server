@@ -3,8 +3,13 @@ pub mod trade {
 }
 
 use pyo3::prelude::*;
+<<<<<<< HEAD
 use pyo3::wrap_pyfunction;
 use pyo3_asyncio::tokio::future_into_py;
+=======
+use pyo3::conversion::IntoPy;
+use pyo3::wrap_pyfunction;
+>>>>>>> [misc] native python client has been replaced by rust FFI
 use trade::GetAggTradeRequest;
 use tonic::transport::Channel;
 use trade::trade_client::TradeClient;
@@ -36,6 +41,14 @@ impl TradeClientWrapper {
         }
     }
 
+    fn add_async(&mut self, py: Python, a: i32, b: i32) -> PyResult<PyObject> {
+        let fut = async move {
+            Ok(a + b)
+        };
+        pyo3_asyncio::tokio::future_into_py(py, fut)
+            .map(|py_any| py_any.to_object(py))  // Convert &PyAny to PyObject
+    }
+    
     // a simple ping message
     fn ping(&mut self) -> PyResult<String> {
         let resp = self.client.ping(tonic::Request::new(trade::PingRequest{ping: "ping".to_string()}));
@@ -55,3 +68,9 @@ fn my_python_package(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<TradeClientWrapper>()?;
     Ok(())
 }
+<<<<<<< HEAD
+=======
+
+
+
+>>>>>>> [misc] native python client has been replaced by rust FFI
