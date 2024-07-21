@@ -1,7 +1,6 @@
 # prepare
 import os
 import grpc
-import lz4.frame
 import pandas as pd
 import time
 
@@ -39,17 +38,23 @@ class TradeClient:
         response = self.stub.RegisterSymbol(request)
         return response
 
+    def get_market_data_with_timing(self, symbol, time_interval=1, timeUnit=trade_pb2.SECONDS):
+        print(f"Requesting market data for {symbol} with time interval {time_interval} seconds")
+        duration = trade_pb2.TimeDuration(value=time_interval, unit=trade_pb2.SECONDS)
+        request = GetMarketDataRequest(symbol=symbol, granularity = duration)
+        response_stream = self.stub.GetMarketDataWithTiming(request)
+        for rb in response_stream:
+            yield rb
+
 if __name__ == '__main__':
     client = TradeClient(host = "localhost", port=10000)
     start_time = time.time()
     import datetime
     # register_response = client.register_symbols(["btcusdt", "ethusdt", "bnbusdt"])
-    for trade in client.get_market_data('btcusdt', time_interval=15):
-        # if you want to convert to pandas dataframe
-        # df = trade.to_pandas()
-        print(trade)
-        # pass
-        time_from_timestamp = datetime.datetime.fromtimestamp(trade.data.close_time/1e3)
-        current_time = datetime.datetime.now()
-        time_difference = current_time - time_from_timestamp
-        print(f"Time difference: {time_difference.total_seconds() * 1e3}")
+    with open("btcusdt_15s.json", 'w') as f:
+        for data in client.get_market_data_with_timing('btcusdt', time_interval=60):
+            # if you want to convert to pandas dataframe
+            # df = trade.to_pandas()
+            print(data)
+            # f.write( f"{data.__str__()}")
+    

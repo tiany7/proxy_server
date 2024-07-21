@@ -18,6 +18,7 @@ use pipelines::pipelines::trade::{
 };
 // Import the Decimal type
 
+use pipelines::pipelines::ResamplingTransformerWithTiming;
 use tokio::sync::{mpsc, Mutex};
 use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
 use tonic::{transport::Server, Request, Response, Status};
@@ -278,6 +279,132 @@ impl Trade for TradeService {
         Ok(Response::new(PingResponse {
             pong: req.ping,
         }))
+    }
+
+
+    type GetMarketDataWithTimingStream = ReceiverStream<Result<GetMarketDataResponse, Status>>;
+
+    async fn get_market_data_with_timing(
+        &self,
+        request: Request<GetMarketDataRequest>,
+    ) -> Result<Response<Self::GetMarketDataStream>, Status> {
+        tracing::info!("request came in");
+        let this_config = self.config.clone();
+        let config_ticket = this_config.lock().await;
+        let this_config = config_ticket.clone();
+        drop(config_ticket);
+        let (tx, rx) = mpsc::channel(100);
+
+        let config_clone = this_config.clone();
+        let request = request.into_inner();
+        let requested_symbol = request.symbol;
+        tracing::info!("Requested symbol: {}", requested_symbol);
+        let requested_granularity = request.granularity.unwrap_or(
+            // return 15 seconds bar as default
+            pipelines::pipelines::trade::TimeDuration {
+                unit: pipelines::pipelines::trade::TimeUnit::Seconds.into(),
+                value: 15,
+            },
+        );
+        let granularity_unit = requested_granularity.value;
+        let granularity =
+            match pipelines::pipelines::trade::TimeUnit::from_i32(requested_granularity.unit)
+                .expect("unrecognized time type")
+            {
+                pipelines::pipelines::trade::TimeUnit::Milliseconds => {
+                    chrono::Duration::milliseconds(granularity_unit)
+                }
+                pipelines::pipelines::trade::TimeUnit::Seconds => {
+                    chrono::Duration::seconds(granularity_unit)
+                }
+                pipelines::pipelines::trade::TimeUnit::Minutes => {
+                    chrono::Duration::minutes(granularity_unit)
+                }
+            };
+        tracing::info!(
+            "requesting {} with time interval of {:?}",
+            requested_symbol,
+            granularity
+        );
+        let key = fmt_key(&requested_symbol, "aggTrade", &granularity.to_string());
+        let binance_mgr_ptr = self.binance_mgr.clone();
+        let mut output = self.connections.entry(key).or_insert_with(|| {
+           // this pipe passes data from the websocket to the resampling transformer
+            let (broadcast_tx, _) = tokio::sync::broadcast::channel(this_config.default_buffer_size);
+            let broadcast_tx_clone = broadcast_tx.clone();
+            tokio::spawn(async move{
+                let (resample_tx, resample_rx) = mpsc::channel(55);
+            // this pipe passes data from the compressor transformer to the grpc server's response
+            let (convert_tx, mut convert_rx) = mpsc::channel(55);
+            let resample_trans = ResamplingTransformerWithTiming::new(vec![resample_rx], vec![convert_tx], granularity);
+            // start transforming
+            tokio::spawn(async move{
+                let _ = resample_trans.transform().await;
+            });
+
+            let binance_mgr = binance_mgr_ptr.lock().await;
+            let mut ws = binance_mgr.subscribe(binance_data_manager::binance_data_manager::BinanceWebsocketOption::AggTrade(requested_symbol))
+                 .await
+                  .unwrap();
+            drop(binance_mgr);
+            // TODO(yuanhan): spawn a new task to handle disaster recovery, close it upon termination
+            // this background task pulls the info from the websocket and sends it to the resampling transformer
+            tokio::spawn(async move {
+             while let Ok(msg) = ws.recv().await {
+                   match msg {
+                       WebsocketEvent::AggTrade(msg) => {
+                         let agg_trade = AggTradeData {
+                            symbol: msg.symbol,
+                            price: parse_f64_or_default(&msg.price),
+                            quantity: parse_f64_or_default(&msg.qty),
+                            trade_time: msg.event_time,
+                            event_type: "aggTrade".to_string(),
+                            is_buyer_maker: msg.is_buyer_maker,
+                            first_break_trade_id: msg.first_break_trade_id,
+                            last_break_trade_id: msg.last_break_trade_id,
+                            aggregated_trade_id: msg.aggregated_trade_id,
+                        };
+                            if let Err(e) =  resample_tx.send(ChannelData::new(agg_trade)).await {
+                            //    tracing::warn!("channel closed: {}", e);
+                         }
+                     },
+                        _ => {
+                          tracing::warn!("mismatched type[type != aggTrade], please add it to handle it");
+                        }
+                 };
+                }
+            });
+        // this task pulls the data from transformer and sends it to the grpc server
+        tokio::spawn(async move {
+            let mut system_time = std::time::SystemTime::now();
+            loop {
+                let data: DataSlice = convert_rx.recv().await
+                                                    .expect("Failed to receive compressed data")
+                                                    .into();
+                let data = data.to_bar_data();
+                let  now_time = std::time::SystemTime::now();
+                let duration_since_epoch = now_time.duration_since(system_time).expect("Time went backwards").as_millis() as u64;
+                system_time = now_time;
+                let response = GetMarketDataResponse {
+                    data: Some(data),
+                };
+                // tx.send(Ok(response)).await.map_err(|e| Status::internal(e.to_string()));
+                let _ = broadcast_tx.send(response);
+            }
+        });
+            });
+        broadcast_tx_clone
+        })
+        .value()
+        .subscribe();
+        tokio::task::spawn(async move {
+            while let Ok(msg) = output.recv().await {
+                if let Err(e) = tx.send(Ok(msg)).await {
+                    // tracing::warn!("channel closed: {}", e);
+                }
+            }
+        });
+        Ok(Response::new(ReceiverStream::new(rx)))
     }
 }
 

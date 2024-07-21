@@ -3,7 +3,6 @@ pub mod trade {
 }
 
 use std::any::Any;
-use std::io::Write;
 use std::ops::Add;
 use std::result::Result::Ok;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -23,7 +22,9 @@ use trade::AggTradeData;
 use trade::BarData;
 use trade::Column;
 
-use super::utils;
+use super::utils as pipeline_utils;
+use pipeline_utils::next_interval_time_point;
+
 
 #[derive(Debug, Clone)]
 pub struct Segment {
@@ -91,9 +92,9 @@ impl From<ChannelData> for BarData {
     }
 }
 
-impl From<ChannelData> for utils::Segment {
+impl From<ChannelData> for pipeline_utils::Segment {
     fn from(val: ChannelData) -> Self {
-        *val.0.downcast::<utils::Segment>().unwrap()
+        *val.0.downcast::<pipeline_utils::Segment>().unwrap()
     }
 }
 
@@ -217,6 +218,12 @@ pub struct CompressionTransformer {
     inner: Arc<Mutex<CompressionTransformerInner>>,
 }
 
+pub struct ResamplingTransformerWithTiming {
+    inner: Arc<Mutex<ResamplingTransformerInner>>,
+    output: Vec<mpsc::Sender<ChannelData>>,
+
+}
+
 impl ResamplingTransformer {
     #[allow(dead_code)]
     pub fn new(
@@ -295,7 +302,7 @@ impl Transformer for ResamplingTransformer {
                 } else {
                     if agg_trade.aggregated_trade_id - cursor > 1 {
                         if let Ok(missed) =
-                            utils::Segment::try_new(cursor, agg_trade.aggregated_trade_id)
+                        pipeline_utils::Segment::try_new(cursor, agg_trade.aggregated_trade_id)
                         {
                             missing_segments.push(missed.clone());
                             nr_missing += missed.size();
@@ -507,7 +514,172 @@ impl Transformer for CompressionTransformer {
     }
 }
 
-// pipelines start here
+impl ResamplingTransformerWithTiming {
+    #[allow(dead_code)]
+    pub fn new(
+        input: Vec<mpsc::Receiver<ChannelData>>,
+        output: Vec<mpsc::Sender<ChannelData>>,
+        granularity: chrono::Duration,
+    ) -> Self {
+        ResamplingTransformerWithTiming {
+            inner: Arc::new(Mutex::new(ResamplingTransformerInner {
+                input,
+                granularity,
+            })),
+            output,
+        }
+    }
+}
+
+#[async_trait]
+impl Transformer for ResamplingTransformerWithTiming {
+    #[tracing::instrument(skip(self))]
+    async fn transform(&self) -> Result<()> {
+        // there is a timer that controls the instant to send the message to down stream
+        let this = self.inner.lock().await;
+        let this_time_gap = this.granularity;
+        drop(this);
+        // create a shared data structure to allow routinely update
+        
+        let data = Arc::new(AtomicCell::new(DataSlice::default()));
+        let inner_clone = self.inner.clone();
+        let data_clone = data.clone();
+        let atomic_lock = Arc::new(AtomicBool::new(false));
+        let atomic_lock_timer = atomic_lock.clone();
+        let should_quit = Arc::new(AtomicBool::new(false));
+        let should_quit_clone = should_quit.clone();
+        let sent_to_downstream = Arc::new(tokio::sync::Notify::new());
+        let sent_to_downstream_clone = sent_to_downstream.clone();
+        let inner_clone = self.inner.clone();
+        // timer task
+        let notify = Arc::new(tokio::sync::Notify::new());
+        let notify_clone = notify.clone();
+        let mut cursor = 0; // this is the global cursor that records the current id position
+        let mut cursor = 0; // this is the global cursor that records the current id position
+        tokio::spawn(async move {
+            let mut missing_segments = vec![];
+            let mut nr_missing = 0;
+            loop {
+                let mut ticket = inner_clone.lock().await;
+                let agg_trade = ticket.input[0].recv().await;
+                drop(ticket);
+                if agg_trade.is_none() {
+                    break;
+                }
+
+                let agg_trade: AggTradeData = agg_trade.unwrap().into();
+                let this_data = data.load();
+                let mut copied_data = this_data;
+                // count number of trades
+                copied_data.number_of_trades += 1;
+                copied_data.close_price = agg_trade.price;
+                copied_data.close_time = agg_trade.trade_time;
+                // update the cursor
+                if cursor == 0 {
+                    cursor = agg_trade.aggregated_trade_id;
+                } else {
+                    if agg_trade.aggregated_trade_id - cursor > 1 {
+                        if let Ok(missed) =
+                        pipeline_utils::Segment::try_new(cursor, agg_trade.aggregated_trade_id)
+                        {
+                            missing_segments.push(missed.clone());
+                            nr_missing += missed.size();
+                        }
+                    }
+                    cursor = agg_trade.aggregated_trade_id;
+                }
+
+                copied_data.last = Some(agg_trade.aggregated_trade_id);
+
+                if agg_trade.price < copied_data.low_price {
+                    copied_data.low_price = agg_trade.price;
+                    copied_data.min_id = agg_trade.aggregated_trade_id;
+                }
+
+                if agg_trade.price > copied_data.high_price {
+                    copied_data.high_price = agg_trade.price;
+                    copied_data.max_id = agg_trade.aggregated_trade_id;
+                }
+
+                if copied_data.number_of_trades == 1 {
+                    copied_data.open_price = agg_trade.price;
+                    copied_data.open_time = agg_trade.trade_time;
+                }
+
+                copied_data.volume += agg_trade.quantity;
+                copied_data.quote_asset_volume += agg_trade.price * agg_trade.quantity;
+
+                copied_data.taker_buy_base_asset_volume += {
+                    if !agg_trade.is_buyer_maker {
+                        agg_trade.quantity
+                    } else {
+                        0.0
+                    }
+                };
+
+                copied_data.taker_buy_quote_asset_volume += {
+                    if !agg_trade.is_buyer_maker {
+                        agg_trade.price * agg_trade.quantity
+                    } else {
+                        0.0
+                    }
+                };
+                // write back to the shared data structure
+                data.store(copied_data);
+                // if the lock is acquired, notify the other task
+                if atomic_lock
+                    .compare_exchange_weak(true, false, Ordering::Relaxed, Ordering::Relaxed)
+                    .is_ok()
+                {
+                    notify.notify_one();
+                    sent_to_downstream.notified().await;
+
+                }
+            }
+        });
+        // timer thread
+        tokio::spawn(async move {
+            let interval_duration = this_time_gap.to_std().unwrap();
+            
+            // log the instant by human readable format
+            
+            loop {
+                // sleep until the next time point
+                let next_time_point = next_interval_time_point(interval_duration).await;
+                info!(
+                    "Current time is: {:?}",
+                    pipeline_utils::get_current_time()
+
+                );
+                tokio::time::sleep_until(next_time_point).await;
+                if should_quit_clone.load(Ordering::Relaxed) {
+                    break;
+                }
+                while atomic_lock_timer
+                    .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+                    .is_err()
+                {}
+                sent_to_downstream_clone.notify_one();
+            }
+        });
+
+        let tx = self.output[0].clone();
+        // sender thread
+        tokio::spawn(async move {
+            loop {
+                notify_clone.notified().await;
+                let this_data = data_clone.load();
+                data_clone.store(DataSlice::default());
+                if tx.send(ChannelData::new(this_data)).await.is_err() {
+                    should_quit.store(true, Ordering::Relaxed);
+                    break;
+                }
+            }
+        });
+        Ok(())
+    }
+}
+
 
 // TODO: make dynamic dispatch work, this is not very safe
 pub struct ResamplingPipeline {
@@ -522,10 +694,7 @@ impl ResamplingPipeline {
     }
 
     pub async fn run_and_wait(&self) -> Result<()> {
-        let mut tasks = Vec::new();
-        for transformer in self.transformers.iter() {
-            tasks.push(transformer.transform());
-        }
+        let mut tasks = self.transformers.iter().map(|x| x.transform()).collect::<Vec<_>>();
         futures::future::join_all(tasks).await;
         Ok(())
     }

@@ -60,6 +60,7 @@ message GetMarketDataResponse {
 }
 
 message BarData {
+    
     uint64 open_time = 1;
     double open = 2;
     double high = 3;
@@ -74,6 +75,7 @@ message BarData {
     uint64 missing_count = 12;
     uint64 max_id = 13;
     uint64 min_id = 14;
+    string symbol = 15;
 }
 
 message PingRequest{
@@ -85,12 +87,14 @@ message PingResponse{
 }
 
 
+
 service Trade{
     rpc GetAggTradeStream(GetAggTradeRequest) returns (stream GetAggTradeResponse);
     rpc GetClientHeartbeat(stream GetHeartbeatRequest) returns (stream GetHeartbeatResponse);
     rpc GetMarketData(GetMarketDataRequest) returns (stream GetMarketDataResponse);
     rpc RegisterSymbol(RegisterSymbolRequest) returns (RegisterSymbolResponse);
     rpc Ping(PingRequest) returns (PingResponse);
+    rpc GetMarketDataWithTiming(GetMarketDataRequest) returns (stream GetMarketDataResponse);
 }
 
 
