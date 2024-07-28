@@ -34,6 +34,12 @@ message GetMarketDataRequest {
     TimeDuration granularity = 2;
 }
 
+message GetMarketDataBatchRequest {
+    repeated string symbols = 1;
+    TimeDuration granularity = 2;
+}
+
+
 message RegisterSymbolRequest {
     repeated string symbols = 1;
 }
@@ -56,7 +62,6 @@ message TimeDuration {
 
 message GetMarketDataResponse {
     BarData data = 1;
-    
 }
 
 message BarData {
@@ -94,7 +99,7 @@ service Trade{
     rpc GetMarketData(GetMarketDataRequest) returns (stream GetMarketDataResponse);
     rpc RegisterSymbol(RegisterSymbolRequest) returns (RegisterSymbolResponse);
     rpc Ping(PingRequest) returns (PingResponse);
-    rpc GetMarketDataWithTiming(GetMarketDataRequest) returns (stream GetMarketDataResponse);
+    rpc GetMarketDataByBatch(GetMarketDataBatchRequest) returns (stream GetMarketDataResponse);
 }
 
 

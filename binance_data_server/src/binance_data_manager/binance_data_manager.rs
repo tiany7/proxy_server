@@ -11,6 +11,8 @@ use binance::websockets::{agg_trade_stream, trade_stream, WebSockets};
 use binance::ws_model::WebsocketEvent;
 use metrics_server::MISSING_VALUE_BY_CHANNEL;
 
+use crate::AggTradeData;
+
 fn default_port() -> usize {
     10000
 }
@@ -100,21 +102,26 @@ impl BinanceDataManager {
     fn register_symbol_stream(&self, key: &str) -> tokio::sync::mpsc::Sender<WebsocketEvent> {
         let (tx, mut rx) = tokio::sync::mpsc::channel(100);
         let buffer_size = self.config.default_buffer_size;
-        let _ = self.connections.entry(key.to_string()).or_insert_with(|| {
-            tracing::warn!("registered symbol {}", key);
-            let (broadcast_tx, _) = tokio::sync::broadcast::channel(buffer_size);
-            let broadcast_tx_clone: tokio::sync::broadcast::Sender<WebsocketEvent> =
-                broadcast_tx.clone();
-            tokio::spawn(async move {
-                while let Some(event) = rx.recv().await {
-                    if let Err(_e) = broadcast_tx_clone.send(event) {
-                        MISSING_VALUE_BY_CHANNEL.inc();
+        let _ = self
+            .connections
+            .entry(key.to_string())
+            .or_insert_with(|| {
+                tracing::warn!("registered symbol {}", key);
+                let (broadcast_tx, _) = tokio::sync::broadcast::channel(buffer_size);
+                let broadcast_tx_clone: tokio::sync::broadcast::Sender<WebsocketEvent> =
+                    broadcast_tx.clone();
+                tokio::spawn(async move {
+                    while let Some(event) = rx.recv().await {
+                        if let Err(_e) = broadcast_tx_clone.send(event) {
+                            MISSING_VALUE_BY_CHANNEL.inc();
+                        }
                     }
-                }
-                tracing::warn!("the websocket connection is closed");
-            });
-            broadcast_tx
-        });
+                    tracing::warn!("the web connection is closed");
+                });
+                broadcast_tx
+            })
+            .value()
+            .subscribe();
 
         tx
     }
@@ -249,6 +256,91 @@ impl BinanceDataManager {
         });
 
         Ok(())
+    }
+
+    pub async fn subcribe_many(
+        &mut self,
+        symbols: Vec<String>,
+    ) -> Result<HashMap<String, tokio::sync::broadcast::Receiver<AggTradeData>>, Error> {
+        let endpoints = symbols
+            .iter()
+            .map(|symbol| agg_trade_stream(symbol).to_string())
+            .collect::<Vec<String>>();
+        // from single source to multiple
+        // since map has already been allocated the memory, we can forget about using dashmap
+        let sender_by_symbol: HashMap<String, tokio::sync::broadcast::Sender<AggTradeData>> =
+            symbols
+                .iter()
+                .filter(|key| !self.connections.contains_key(*key))
+                .map(|key| {
+                    let (tx, _) = tokio::sync::broadcast::channel(2000);
+
+                    (key.clone(), tx)
+                })
+                .collect();
+        let receiver_by_symbol: HashMap<String, tokio::sync::broadcast::Receiver<AggTradeData>> =
+            sender_by_symbol
+                .iter()
+                .map(|(key, tx)| {
+                    let rx = tx.subscribe();
+                    (key.clone(), rx)
+                })
+                .collect();
+
+        tokio::spawn(async move {
+            let keep_running = AtomicBool::new(true);
+            let mut ws = WebSockets::new(
+                |event: binance::ws_model::CombinedStreamEvent<
+                    binance::ws_model::WebsocketEventUntag,
+                >| {
+                    match event.data {
+                        binance::ws_model::WebsocketEventUntag::WebsocketEvent(event) => {
+                            match event.clone() {
+                                binance::ws_model::WebsocketEvent::AggTrade(msg) => {
+                                    if let Some(tx) =
+                                        sender_by_symbol.get(msg.symbol.to_lowercase().as_str())
+                                    {
+                                        let event = AggTradeData {
+                                            symbol: msg.symbol,
+                                            price: crate::parse_f64_or_default(&msg.price),
+                                            quantity: crate::parse_f64_or_default(&msg.qty),
+                                            trade_time: msg.event_time,
+                                            event_type: "aggTrade".to_string(),
+                                            is_buyer_maker: msg.is_buyer_maker,
+                                            first_break_trade_id: msg.first_break_trade_id,
+                                            last_break_trade_id: msg.last_break_trade_id,
+                                            aggregated_trade_id: msg.aggregated_trade_id,
+                                        };
+                                        if let Err(_e) = tx.send(event) {
+                                            MISSING_VALUE_BY_CHANNEL.inc();
+                                        }
+                                    } else {
+                                        tracing::error!(
+                                            "the symbol {} is not registered",
+                                            msg.symbol
+                                        );
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        _ => unimplemented!(),
+                    }
+
+                    Ok(())
+                },
+            );
+            ws.connect_multiple(endpoints)
+                .await
+                .expect("Failed to connect");
+
+            if let Err(e) = ws.event_loop(&keep_running).await {
+                tracing::warn!("the websocket connection is closed: {:?}", e);
+            }
+            ws.disconnect().await.expect("Failed to connect");
+        });
+
+        Ok(receiver_by_symbol)
     }
 
     pub async fn get_agg_trades(

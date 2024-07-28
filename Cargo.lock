@@ -1777,6 +1777,8 @@ dependencies = [
  "tokio-tungstenite",
  "tonic",
  "tonic-build",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

@@ -1,6 +1,6 @@
 use anyhow::{Ok, Result};
-use tokio::time::{self, Duration, Instant};
 use chrono::{DateTime, Timelike};
+use tokio::time::{self, Duration, Instant};
 
 // the start is the start id of the missing segment
 // this is to count the number of missing segments
@@ -29,8 +29,8 @@ impl Segment {
     }
 }
 
-
-pub async fn next_interval_time_point(interval: Duration) -> Instant {
+// returns the instant until and the timestamp of next time to send
+pub async fn next_interval_time_point(interval: Duration) -> (Instant, u64) {
     let now = chrono::Local::now();
     let current_seconds = now.second() as u64;
     let interval_seconds = interval.as_secs();
@@ -38,17 +38,27 @@ pub async fn next_interval_time_point(interval: Duration) -> Instant {
     let next_interval_seconds = ((current_seconds / interval_seconds) + 1) * interval_seconds;
     let next_time_in_minute = next_interval_seconds % 60;
     // tracing::info!("next time in minute is {}", next_time_in_minute);
-    let next_time = now.with_second(next_time_in_minute as u32).unwrap().with_nanosecond(0).unwrap();
+    let next_time: DateTime<chrono::Local> = now
+        .with_second(next_time_in_minute as u32)
+        .unwrap()
+        .with_nanosecond(0)
+        .unwrap();
     // tracing::info!("now is {:?}, next time is {:?}", now, next_time);
     let duration_until_next_interval = now - next_time;
-    // tracing::info!("duration until next interval is {:?}", duration_until_next_interval);
-    Instant::now() + Duration::from_secs(60 - (duration_until_next_interval.num_seconds() as u64)) + Duration::from_millis(3)
+    tracing::info!(
+        "duration until next interval is {:?}",
+        duration_until_next_interval
+    );
+    (
+        Instant::now()
+            + Duration::from_secs(60 - (duration_until_next_interval.num_seconds() as u64)) - Duration::from_millis(30),
+        ((next_time.timestamp() / 1000) as u64) * 1000,
+    )
 }
 
 pub fn get_current_time() -> DateTime<chrono::Local> {
     chrono::Local::now()
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -58,7 +68,7 @@ mod tests {
     #[tokio::test]
     async fn test_next_interval_15_seconds() {
         pause(); // Pause time for deterministic testing
-        
+
         let duration = Duration::from_secs(15);
         let start = Instant::now();
         let next_time_point = next_interval_time_point(duration).await;
@@ -71,7 +81,7 @@ mod tests {
     #[tokio::test]
     async fn test_next_interval_30_seconds() {
         pause(); // Pause time for deterministic testing
-        
+
         let duration = Duration::from_secs(30);
         let start = Instant::now();
         let next_time_point = next_interval_time_point(duration).await;
@@ -83,8 +93,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_next_interval_60_seconds() {
-        pause(); 
-        
+        pause();
+
         let duration = Duration::from_secs(60);
         let start = Instant::now();
         let next_time_point = next_interval_time_point(duration).await;

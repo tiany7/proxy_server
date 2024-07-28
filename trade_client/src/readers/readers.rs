@@ -1,8 +1,11 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use anyhow::Result;
 use pyo3::prelude::*;
-use tokio::sync::mpsc::Receiver;
+use pyo3::types::{PyDict, PyList};
+use tokio::sync::{mpsc::Receiver, Mutex};
 use tokio_stream::StreamExt;
-use std::collections::HashMap;
 
 use super::trade as trade_pb;
 use crate::TradeClient;
@@ -27,16 +30,28 @@ pub struct PyBarData {
 }
 
 #[pyclass]
+#[derive(Debug)]
 pub struct StreamReader {
-    stub : Receiver<trade_pb::BarData>,
+    symbol: String,
+    stub: std::sync::Arc<tokio::sync::Mutex<Receiver<trade_pb::BarData>>>,
 }
 
 #[pymethods]
 impl StreamReader {
-    fn next(&mut self, py: Python) -> PyResult<PyObject> {
+    #[new]
+    fn new() -> Self {
+        let (_, stubber) = tokio::sync::mpsc::channel(10);
+        StreamReader {
+            symbol: "".to_string(),
+            stub: std::sync::Arc::new(Mutex::new(stubber)),
+        }
+    }
+
+    pub fn next(&mut self, py: Python) -> PyResult<PyObject> {
+        let stub = self.stub.clone();
         pyo3_asyncio::tokio::future_into_py(py, async move {
-            match self.stub.recv().await {
-                Some(data) => Ok(PyBarData{
+            match stub.lock().await.recv().await {
+                Some(data) => Ok(PyBarData {
                     low_price: data.low,
                     high_price: data.high,
                     open_price: data.open,
@@ -52,22 +67,40 @@ impl StreamReader {
                     open_time: data.open_time,
                     close_time: data.close_time,
                 }),
-                None => Ok(PyBarData::default()),
+                _ => Ok(PyBarData::default()),
             }
-        }).map(|py_any| py_any.to_object(py))
+        })
+        .map(|py_any| py_any.to_object(py))
     }
 }
 
-pub async fn dispatch_readers(symbols: Vec<String>, mut rx : tonic::Streaming<trade_pb::GetMarketDataResponse>) -> HashMap<String, StreamReader> {
+// implement pyo3::ToPyObject trait for stream readers
+// impl pyo3::ToPyObject for StreamReader {
+//     fn to_object(&self, py: pyo3::Python) -> pyo3::PyObject {
+//         let (tx, mut rx) = tokio::sync::mpsc::channel(10);
+//         let dict = PyDict::new(py);
+//         dict.set_item("symbol", self.symbol.clone()).unwrap();
+//         dict.set_item("stub", rx).unwrap();
+//         dict.into()
+//     }
+// }
+
+pub async fn dispatch_readers(
+    symbols: Vec<String>,
+    mut rx: tonic::Streaming<trade_pb::GetMarketDataResponse>,
+) -> HashMap<String, StreamReader> {
     let mut proxies = HashMap::new();
     let mut readers = HashMap::new();
-    let mut receivers = symbols.iter().map(|symbol| {
-        let (tx, rx) = tokio::sync::mpsc::channel(10);
-        proxies.insert(symbol.clone(), tx); 
-        (symbol.clone(), rx)
-    }).collect::<HashMap<_, _>>();
+    let mut receivers = symbols
+        .iter()
+        .map(|symbol| {
+            let (tx, rx) = tokio::sync::mpsc::channel(10);
+            proxies.insert(symbol.clone(), tx);
+            (symbol.clone(), rx)
+        })
+        .collect::<HashMap<_, _>>();
 
-    tokio::spawn(async move{
+    tokio::spawn(async move {
         while let Some(Ok(data)) = rx.next().await {
             let data = data.data.unwrap();
             if let Some(tx) = proxies.get_mut(&data.symbol) {
@@ -75,16 +108,22 @@ pub async fn dispatch_readers(symbols: Vec<String>, mut rx : tonic::Streaming<tr
             }
         }
     });
-    
+
     for symbol in symbols {
         let (symbol_tx, mut symbol_rx) = tokio::sync::mpsc::channel(10);
         let mut rx = receivers.remove(&symbol).unwrap();
-        tokio::spawn(async move{
+        tokio::spawn(async move {
             while let Some(data) = rx.recv().await {
                 symbol_tx.send(data).await.expect("Failed to send data");
             }
         });
-        readers.insert(symbol, StreamReader{stub: symbol_rx});
+        readers.insert(
+            symbol.clone(),
+            StreamReader {
+                symbol,
+                stub: Arc::new(Mutex::new(symbol_rx)),
+            },
+        );
     }
     readers
 }

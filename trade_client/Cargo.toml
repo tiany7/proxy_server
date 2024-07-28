@@ -20,6 +20,8 @@ async-trait = "0.1.52"
 lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
 pyo3 = { version = "0.20", features = ["extension-module", "auto-initialize"] }
 pyo3-asyncio = { version = "0.20", features = ["tokio-runtime"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
 
 [build-dependencies]
 tonic-build = "0.11"
