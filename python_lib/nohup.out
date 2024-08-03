@@ -1,0 +1,30 @@
+Requesting market data for ['btcusdt', 'ethusdt', 'bnbusdt', 'adausdt', 'dogeusdt', 'xrpusdt', 'ltcusdt', 'linkusdt', 'dotusdt', 'uniusdt'] with time interval 60 seconds
+Traceback (most recent call last):
+  File "binance_connector.py", line 81, in <module>
+    for data in client.get_market_data_by_batch(symbols, time_interval=60):
+  File "binance_connector.py", line 53, in get_market_data_by_batch
+    for rb in response_stream:
+  File "/home/ubuntu/.local/lib/python3.8/site-packages/grpc/_channel.py", line 542, in __next__
+    return self._next()
+  File "/home/ubuntu/.local/lib/python3.8/site-packages/grpc/_channel.py", line 968, in _next
+    raise self
+grpc._channel._MultiThreadedRendezvous: <_MultiThreadedRendezvous of RPC that terminated with:
+	status = StatusCode.UNAVAILABLE
+	details = "Socket closed"
+	debug_error_string = "UNKNOWN:Error received from peer ipv4:127.0.0.1:10000 {created_time:"2024-08-04T08:02:19.989151896+00:00", grpc_status:14, grpc_message:"Socket closed"}"
+>
+Requesting market data for ['btcusdt', 'ethusdt', 'bnbusdt', 'adausdt', 'dogeusdt', 'xrpusdt', 'ltcusdt', 'linkusdt', 'dotusdt', 'uniusdt'] with time interval 60 seconds
+Traceback (most recent call last):
+  File "binance_connector.py", line 81, in <module>
+    for data in client.get_market_data_by_batch(symbols, time_interval=60):
+  File "binance_connector.py", line 53, in get_market_data_by_batch
+    for rb in response_stream:
+  File "/home/ubuntu/.local/lib/python3.8/site-packages/grpc/_channel.py", line 542, in __next__
+    return self._next()
+  File "/home/ubuntu/.local/lib/python3.8/site-packages/grpc/_channel.py", line 968, in _next
+    raise self
+grpc._channel._MultiThreadedRendezvous: <_MultiThreadedRendezvous of RPC that terminated with:
+	status = StatusCode.UNAVAILABLE
+	details = "Socket closed"
+	debug_error_string = "UNKNOWN:Error received from peer ipv4:127.0.0.1:10000 {grpc_message:"Socket closed", grpc_status:14, created_time:"2024-08-04T08:51:54.391388684+00:00"}"
+>

@@ -1,0 +1,824 @@
+warning: /home/ubuntu/proxy_server/binance_data_server/Cargo.toml: unused manifest key: package.metrics
+warning: unused import: `AtomicI8`
+ --> binance_data_server/src/pipelines/pipelines.rs:8:37
+  |
+8 | use std::sync::atomic::{AtomicBool, AtomicI8, Ordering};
+  |                                     ^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `crossbeam::sync::ShardedLockReadGuard`
+  --> binance_data_server/src/pipelines/pipelines.rs:15:5
+   |
+15 | use crossbeam::sync::ShardedLockReadGuard;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `metrics_server::MISSING_VALUES_COUNT`
+  --> binance_data_server/src/pipelines/pipelines.rs:17:5
+   |
+17 | use metrics_server::MISSING_VALUES_COUNT;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `tokio_schedule::Job`
+  --> binance_data_server/src/pipelines/pipelines.rs:19:5
+   |
+19 | use tokio_schedule::Job;
+   |     ^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `error`
+  --> binance_data_server/src/pipelines/pipelines.rs:20:15
+   |
+20 | use tracing::{error, info};
+   |               ^^^^^
+
+warning: unused import: `next_aligned_instant`
+  --> binance_data_server/src/pipelines/pipelines.rs:26:22
+   |
+26 | use pipeline_utils::{next_aligned_instant, next_interval_time_point};
+   |                      ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `self`
+ --> binance_data_server/src/pipelines/utils.rs:5:19
+  |
+5 | use tokio::time::{self, Duration, Instant};
+  |                   ^^^^
+
+warning: unused import: `BarData`
+  --> binance_data_server/src/binance_grpc_server.rs:15:19
+   |
+15 |     AggTradeData, BarData, GetAggTradeRequest, GetAggTradeResponse, GetHeartbeatRequest,
+   |                   ^^^^^^^
+
+warning: unused variable: `option`
+   --> binance_data_server/src/binance_data_manager/binance_data_manager.rs:193:9
+    |
+193 |         option: BinanceWebsocketOption,
+    |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_option`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `tx`
+   --> binance_data_server/src/binance_data_manager/binance_data_manager.rs:238:53
+    |
+238 | ...                   if let Some(ref tx) = sender_by_symbol
+    |                                       ^^ help: if this is intentional, prefix it with an underscore: `_tx`
+
+warning: unused variable: `msg`
+   --> binance_data_server/src/binance_data_manager/binance_data_manager.rs:339:74
+    |
+339 | ...                   binance::ws_model::WebsocketEvent::Trade(msg) => {
+    |                                                                ^^^ help: if this is intentional, prefix it with an underscore: `_msg`
+
+warning: unused variable: `msg`
+   --> binance_data_server/src/binance_data_manager/binance_data_manager.rs:412:78
+    |
+412 | ...                   binance::ws_model::WebsocketEvent::Trade(msg) => {
+    |                                                                ^^^ help: if this is intentional, prefix it with an underscore: `_msg`
+
+warning: variable does not need to be mutable
+   --> binance_data_server/src/pipelines/pipelines.rs:789:13
+    |
+789 |         let mut tasks = self
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: use of deprecated associated function `pipelines::pipelines::trade::TimeUnit::from_i32`: Use the TryFrom<i32> implementation instead
+   --> binance_data_server/src/binance_grpc_server.rs:153:58
+    |
+153 |             match pipelines::pipelines::trade::TimeUnit::from_i32(requested_granularity.unit)
+    |                                                          ^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated associated function `chrono::TimeDelta::milliseconds`: Use `TimeDelta::try_milliseconds` instead
+   --> binance_data_server/src/binance_grpc_server.rs:157:39
+    |
+157 |                     chrono::Duration::milliseconds(granularity_unit)
+    |                                       ^^^^^^^^^^^^
+
+warning: use of deprecated associated function `chrono::TimeDelta::seconds`: Use `TimeDelta::try_seconds` instead
+   --> binance_data_server/src/binance_grpc_server.rs:160:39
+    |
+160 |                     chrono::Duration::seconds(granularity_unit)
+    |                                       ^^^^^^^
+
+warning: use of deprecated associated function `chrono::TimeDelta::minutes`: Use `TimeDelta::try_minutes` instead
+   --> binance_data_server/src/binance_grpc_server.rs:163:39
+    |
+163 |                     chrono::Duration::minutes(granularity_unit)
+    |                                       ^^^^^^^
+
+warning: use of deprecated associated function `pipelines::pipelines::trade::TimeUnit::from_i32`: Use the TryFrom<i32> implementation instead
+   --> binance_data_server/src/binance_grpc_server.rs:303:58
+    |
+303 |             match pipelines::pipelines::trade::TimeUnit::from_i32(requested_granularity.unit)
+    |                                                          ^^^^^^^^
+
+warning: use of deprecated associated function `chrono::TimeDelta::milliseconds`: Use `TimeDelta::try_milliseconds` instead
+   --> binance_data_server/src/binance_grpc_server.rs:307:39
+    |
+307 |                     chrono::Duration::milliseconds(granularity_unit)
+    |                                       ^^^^^^^^^^^^
+
+warning: use of deprecated associated function `chrono::TimeDelta::seconds`: Use `TimeDelta::try_seconds` instead
+   --> binance_data_server/src/binance_grpc_server.rs:310:39
+    |
+310 |                     chrono::Duration::seconds(granularity_unit)
+    |                                       ^^^^^^^
+
+warning: use of deprecated associated function `chrono::TimeDelta::minutes`: Use `TimeDelta::try_minutes` instead
+   --> binance_data_server/src/binance_grpc_server.rs:313:39
+    |
+313 |                     chrono::Duration::minutes(granularity_unit)
+    |                                       ^^^^^^^
+
+warning: unused import: `futures::SinkExt`
+  --> binance_data_server/src/pipelines/pipelines.rs:16:5
+   |
+16 | use futures::SinkExt;
+   |     ^^^^^^^^^^^^^^^^
+
+warning: unused variable: `recovery_enabled`
+   --> binance_data_server/src/pipelines/pipelines.rs:335:13
+    |
+335 |         let recovery_enabled = self.output.len() >= 2;
+    |             ^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_recovery_enabled`
+
+warning: variable `nr_missing` is assigned to, but never used
+   --> binance_data_server/src/pipelines/pipelines.rs:352:21
+    |
+352 |             let mut nr_missing = 0;
+    |                     ^^^^^^^^^^
+    |
+    = note: consider using `_nr_missing` instead
+
+warning: unused variable: `cursor`
+   --> binance_data_server/src/pipelines/pipelines.rs:636:17
+    |
+636 |         let mut cursor = 0; // this is the global cursor that records the current id position
+    |                 ^^^^^^ help: if this is intentional, prefix it with an underscore: `_cursor`
+
+warning: variable `nr_missing` is assigned to, but never used
+   --> binance_data_server/src/pipelines/pipelines.rs:640:21
+    |
+640 |             let mut nr_missing = 0;
+    |                     ^^^^^^^^^^
+    |
+    = note: consider using `_nr_missing` instead
+
+warning: variable does not need to be mutable
+   --> binance_data_server/src/pipelines/pipelines.rs:631:13
+    |
+631 |         let mut unused_agg_trade = Arc::new(tokio::sync::Mutex::new(vec![]));
+    |             ----^^^^^^^^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> binance_data_server/src/pipelines/pipelines.rs:632:13
+    |
+632 |         let mut unused_buffer = unused_agg_trade.clone();
+    |             ----^^^^^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> binance_data_server/src/pipelines/pipelines.rs:636:13
+    |
+636 |         let mut cursor = 0; // this is the global cursor that records the current id position
+    |             ----^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: unused variable: `now`
+  --> binance_data_server/src/pipelines/utils.rs:69:9
+   |
+69 |     let now = Instant::now();
+   |         ^^^ help: if this is intentional, prefix it with an underscore: `_now`
+
+warning: unused variable: `config_clone`
+   --> binance_data_server/src/binance_grpc_server.rs:140:13
+    |
+140 |         let config_clone = this_config.clone();
+    |             ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_config_clone`
+
+warning: unused variable: `e`
+   --> binance_data_server/src/binance_grpc_server.rs:209:40
+    |
+209 | ...                   if let Err(e) =  resample_tx.send(ChannelData::new(agg_trade)).await {
+    |                                  ^ help: if this is intentional, prefix it with an underscore: `_e`
+
+warning: unused variable: `duration_since_epoch`
+   --> binance_data_server/src/binance_grpc_server.rs:228:21
+    |
+228 |                 let duration_since_epoch = now_time.duration_since(system_time).expect("Time went backwards").as_millis() as u64;
+    |                     ^^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_duration_since_epoch`
+
+warning: unused variable: `e`
+   --> binance_data_server/src/binance_grpc_server.rs:244:28
+    |
+244 |                 if let Err(e) = tx.send(Ok(msg)).await {
+    |                            ^ help: if this is intentional, prefix it with an underscore: `_e`
+
+warning: variable does not need to be mutable
+   --> binance_data_server/src/binance_grpc_server.rs:259:13
+    |
+259 |         let mut ticket = self.binance_mgr.lock().await;
+    |             ----^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: unused variable: `config_clone`
+   --> binance_data_server/src/binance_grpc_server.rs:291:13
+    |
+291 |         let config_clone = this_config.clone();
+    |             ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_config_clone`
+
+warning: variable does not need to be mutable
+   --> binance_data_server/src/binance_grpc_server.rs:333:30
+    |
+333 |             let (data_input, mut data_output) = mpsc::channel(1000);
+    |                              ----^^^^^^^^^^^
+    |                              |
+    |                              help: remove this `mut`
+
+warning: associated items `try_new` and `size` are never used
+  --> binance_data_server/src/pipelines/pipelines.rs:35:12
+   |
+34 | impl Segment {
+   | ------------ associated items in this implementation
+35 |     pub fn try_new(start: u64, end: u64) -> Result<Self, anyhow::Error> {
+   |            ^^^^^^^
+...
+43 |     pub fn size(&self) -> u64 {
+   |            ^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: fields `name` and `age` are never read
+  --> binance_data_server/src/pipelines/pipelines.rs:54:5
+   |
+53 | struct SampleData {
+   |        ---------- fields in this struct
+54 |     name: String,
+   |     ^^^^
+55 |     age: i32,
+   |     ^^^
+
+warning: method `reset` is never used
+   --> binance_data_server/src/pipelines/pipelines.rs:157:8
+    |
+156 | impl DataSlice {
+    | -------------- method in this implementation
+157 |     fn reset(&mut self) {
+    |        ^^^^^
+
+warning: struct `ResamplingPipeline` is never constructed
+   --> binance_data_server/src/pipelines/pipelines.rs:777:12
+    |
+777 | pub struct ResamplingPipeline {
+    |            ^^^^^^^^^^^^^^^^^^
+
+warning: associated items `new` and `run_and_wait` are never used
+   --> binance_data_server/src/pipelines/pipelines.rs:782:12
+    |
+781 | impl ResamplingPipeline {
+    | ----------------------- associated items in this implementation
+782 |     pub fn new() -> Self {
+    |            ^^^
+...
+788 |     pub async fn run_and_wait(&self) -> Result<()> {
+    |                  ^^^^^^^^^^^^
+
+warning: associated function `new` is never used
+  --> binance_data_server/src/pipelines/utils.rs:25:12
+   |
+16 | impl Segment {
+   | ------------ associated function in this implementation
+...
+25 |     pub fn new(start: u64, end: u64) -> Self {
+   |            ^^^
+
+warning: function `next_aligned_instant` is never used
+  --> binance_data_server/src/pipelines/utils.rs:62:8
+   |
+62 | pub fn next_aligned_instant(duration: Duration) -> (Instant, u64) {
+   |        ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `get_current_time` is never used
+  --> binance_data_server/src/pipelines/utils.rs:85:8
+   |
+85 | pub fn get_current_time() -> DateTime<chrono::Local> {
+   |        ^^^^^^^^^^^^^^^^
+
+warning: unused `std::result::Result` that must be used
+   --> binance_data_server/src/binance_grpc_server.rs:355:21
+    |
+355 |                     tx.send(Ok(response)).await;
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+    = note: `#[warn(unused_must_use)]` on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+355 |                     let _ = tx.send(Ok(response)).await;
+    |                     +++++++
+
+warning: `proxy_server` (bin "data_server") generated 46 warnings (run `cargo fix --bin "data_server"` to apply 26 suggestions)
+    Finished release [optimized] target(s) in 0.43s
+     Running `target/release/data_server`
+[2m2024-08-04T08:01:57.494853Z[0m [32m INFO[0m [2mdata_server[0m[2m:[0m ready to accept request from 0.0.0.0:10000
+  [2m2024-08-04T08:01:57.494897Z[0m [32m INFO[0m [1;32mdata_server[0m[32m: [32mready to accept request from 0.0.0.0:10000[0m
+    [2;3mat[0m binance_data_server/src/binance_grpc_server.rs:366
+
+thread 'tokio-runtime-worker' panicked at /home/ubuntu/proxy_server/metrics_server/src/metrics.rs:45:29:
+Can't bind to port 8080
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+warning: /home/ubuntu/proxy_server/binance_data_server/Cargo.toml: unused manifest key: package.metrics
+warning: unused import: `AtomicI8`
+ --> binance_data_server/src/pipelines/pipelines.rs:8:37
+  |
+8 | use std::sync::atomic::{AtomicBool, AtomicI8, Ordering};
+  |                                     ^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `crossbeam::sync::ShardedLockReadGuard`
+  --> binance_data_server/src/pipelines/pipelines.rs:15:5
+   |
+15 | use crossbeam::sync::ShardedLockReadGuard;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `metrics_server::MISSING_VALUES_COUNT`
+  --> binance_data_server/src/pipelines/pipelines.rs:17:5
+   |
+17 | use metrics_server::MISSING_VALUES_COUNT;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `tokio_schedule::Job`
+  --> binance_data_server/src/pipelines/pipelines.rs:19:5
+   |
+19 | use tokio_schedule::Job;
+   |     ^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `error`
+  --> binance_data_server/src/pipelines/pipelines.rs:20:15
+   |
+20 | use tracing::{error, info};
+   |               ^^^^^
+
+warning: unused import: `next_aligned_instant`
+  --> binance_data_server/src/pipelines/pipelines.rs:26:22
+   |
+26 | use pipeline_utils::{next_aligned_instant, next_interval_time_point};
+   |                      ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `self`
+ --> binance_data_server/src/pipelines/utils.rs:5:19
+  |
+5 | use tokio::time::{self, Duration, Instant};
+  |                   ^^^^
+
+warning: unused import: `BarData`
+  --> binance_data_server/src/binance_grpc_server.rs:15:19
+   |
+15 |     AggTradeData, BarData, GetAggTradeRequest, GetAggTradeResponse, GetHeartbeatRequest,
+   |                   ^^^^^^^
+
+warning: unused variable: `option`
+   --> binance_data_server/src/binance_data_manager/binance_data_manager.rs:193:9
+    |
+193 |         option: BinanceWebsocketOption,
+    |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_option`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `tx`
+   --> binance_data_server/src/binance_data_manager/binance_data_manager.rs:238:53
+    |
+238 | ...                   if let Some(ref tx) = sender_by_symbol
+    |                                       ^^ help: if this is intentional, prefix it with an underscore: `_tx`
+
+warning: unused variable: `msg`
+   --> binance_data_server/src/binance_data_manager/binance_data_manager.rs:339:74
+    |
+339 | ...                   binance::ws_model::WebsocketEvent::Trade(msg) => {
+    |                                                                ^^^ help: if this is intentional, prefix it with an underscore: `_msg`
+
+warning: unused variable: `msg`
+   --> binance_data_server/src/binance_data_manager/binance_data_manager.rs:412:78
+    |
+412 | ...                   binance::ws_model::WebsocketEvent::Trade(msg) => {
+    |                                                                ^^^ help: if this is intentional, prefix it with an underscore: `_msg`
+
+warning: variable does not need to be mutable
+   --> binance_data_server/src/pipelines/pipelines.rs:789:13
+    |
+789 |         let mut tasks = self
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: use of deprecated associated function `pipelines::pipelines::trade::TimeUnit::from_i32`: Use the TryFrom<i32> implementation instead
+   --> binance_data_server/src/binance_grpc_server.rs:153:58
+    |
+153 |             match pipelines::pipelines::trade::TimeUnit::from_i32(requested_granularity.unit)
+    |                                                          ^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated associated function `chrono::TimeDelta::milliseconds`: Use `TimeDelta::try_milliseconds` instead
+   --> binance_data_server/src/binance_grpc_server.rs:157:39
+    |
+157 |                     chrono::Duration::milliseconds(granularity_unit)
+    |                                       ^^^^^^^^^^^^
+
+warning: use of deprecated associated function `chrono::TimeDelta::seconds`: Use `TimeDelta::try_seconds` instead
+   --> binance_data_server/src/binance_grpc_server.rs:160:39
+    |
+160 |                     chrono::Duration::seconds(granularity_unit)
+    |                                       ^^^^^^^
+
+warning: use of deprecated associated function `chrono::TimeDelta::minutes`: Use `TimeDelta::try_minutes` instead
+   --> binance_data_server/src/binance_grpc_server.rs:163:39
+    |
+163 |                     chrono::Duration::minutes(granularity_unit)
+    |                                       ^^^^^^^
+
+warning: use of deprecated associated function `pipelines::pipelines::trade::TimeUnit::from_i32`: Use the TryFrom<i32> implementation instead
+   --> binance_data_server/src/binance_grpc_server.rs:303:58
+    |
+303 |             match pipelines::pipelines::trade::TimeUnit::from_i32(requested_granularity.unit)
+    |                                                          ^^^^^^^^
+
+warning: use of deprecated associated function `chrono::TimeDelta::milliseconds`: Use `TimeDelta::try_milliseconds` instead
+   --> binance_data_server/src/binance_grpc_server.rs:307:39
+    |
+307 |                     chrono::Duration::milliseconds(granularity_unit)
+    |                                       ^^^^^^^^^^^^
+
+warning: use of deprecated associated function `chrono::TimeDelta::seconds`: Use `TimeDelta::try_seconds` instead
+   --> binance_data_server/src/binance_grpc_server.rs:310:39
+    |
+310 |                     chrono::Duration::seconds(granularity_unit)
+    |                                       ^^^^^^^
+
+warning: use of deprecated associated function `chrono::TimeDelta::minutes`: Use `TimeDelta::try_minutes` instead
+   --> binance_data_server/src/binance_grpc_server.rs:313:39
+    |
+313 |                     chrono::Duration::minutes(granularity_unit)
+    |                                       ^^^^^^^
+
+warning: unused import: `futures::SinkExt`
+  --> binance_data_server/src/pipelines/pipelines.rs:16:5
+   |
+16 | use futures::SinkExt;
+   |     ^^^^^^^^^^^^^^^^
+
+warning: unused variable: `recovery_enabled`
+   --> binance_data_server/src/pipelines/pipelines.rs:335:13
+    |
+335 |         let recovery_enabled = self.output.len() >= 2;
+    |             ^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_recovery_enabled`
+
+warning: variable `nr_missing` is assigned to, but never used
+   --> binance_data_server/src/pipelines/pipelines.rs:352:21
+    |
+352 |             let mut nr_missing = 0;
+    |                     ^^^^^^^^^^
+    |
+    = note: consider using `_nr_missing` instead
+
+warning: unused variable: `cursor`
+   --> binance_data_server/src/pipelines/pipelines.rs:636:17
+    |
+636 |         let mut cursor = 0; // this is the global cursor that records the current id position
+    |                 ^^^^^^ help: if this is intentional, prefix it with an underscore: `_cursor`
+
+warning: variable `nr_missing` is assigned to, but never used
+   --> binance_data_server/src/pipelines/pipelines.rs:640:21
+    |
+640 |             let mut nr_missing = 0;
+    |                     ^^^^^^^^^^
+    |
+    = note: consider using `_nr_missing` instead
+
+warning: variable does not need to be mutable
+   --> binance_data_server/src/pipelines/pipelines.rs:631:13
+    |
+631 |         let mut unused_agg_trade = Arc::new(tokio::sync::Mutex::new(vec![]));
+    |             ----^^^^^^^^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> binance_data_server/src/pipelines/pipelines.rs:632:13
+    |
+632 |         let mut unused_buffer = unused_agg_trade.clone();
+    |             ----^^^^^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> binance_data_server/src/pipelines/pipelines.rs:636:13
+    |
+636 |         let mut cursor = 0; // this is the global cursor that records the current id position
+    |             ----^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: unused variable: `now`
+  --> binance_data_server/src/pipelines/utils.rs:69:9
+   |
+69 |     let now = Instant::now();
+   |         ^^^ help: if this is intentional, prefix it with an underscore: `_now`
+
+warning: unused variable: `config_clone`
+   --> binance_data_server/src/binance_grpc_server.rs:140:13
+    |
+140 |         let config_clone = this_config.clone();
+    |             ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_config_clone`
+
+warning: unused variable: `e`
+   --> binance_data_server/src/binance_grpc_server.rs:209:40
+    |
+209 | ...                   if let Err(e) =  resample_tx.send(ChannelData::new(agg_trade)).await {
+    |                                  ^ help: if this is intentional, prefix it with an underscore: `_e`
+
+warning: unused variable: `duration_since_epoch`
+   --> binance_data_server/src/binance_grpc_server.rs:228:21
+    |
+228 |                 let duration_since_epoch = now_time.duration_since(system_time).expect("Time went backwards").as_millis() as u64;
+    |                     ^^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_duration_since_epoch`
+
+warning: unused variable: `e`
+   --> binance_data_server/src/binance_grpc_server.rs:244:28
+    |
+244 |                 if let Err(e) = tx.send(Ok(msg)).await {
+    |                            ^ help: if this is intentional, prefix it with an underscore: `_e`
+
+warning: variable does not need to be mutable
+   --> binance_data_server/src/binance_grpc_server.rs:259:13
+    |
+259 |         let mut ticket = self.binance_mgr.lock().await;
+    |             ----^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: unused variable: `config_clone`
+   --> binance_data_server/src/binance_grpc_server.rs:291:13
+    |
+291 |         let config_clone = this_config.clone();
+    |             ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_config_clone`
+
+warning: variable does not need to be mutable
+   --> binance_data_server/src/binance_grpc_server.rs:333:30
+    |
+333 |             let (data_input, mut data_output) = mpsc::channel(1000);
+    |                              ----^^^^^^^^^^^
+    |                              |
+    |                              help: remove this `mut`
+
+warning: associated items `try_new` and `size` are never used
+  --> binance_data_server/src/pipelines/pipelines.rs:35:12
+   |
+34 | impl Segment {
+   | ------------ associated items in this implementation
+35 |     pub fn try_new(start: u64, end: u64) -> Result<Self, anyhow::Error> {
+   |            ^^^^^^^
+...
+43 |     pub fn size(&self) -> u64 {
+   |            ^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: fields `name` and `age` are never read
+  --> binance_data_server/src/pipelines/pipelines.rs:54:5
+   |
+53 | struct SampleData {
+   |        ---------- fields in this struct
+54 |     name: String,
+   |     ^^^^
+55 |     age: i32,
+   |     ^^^
+
+warning: method `reset` is never used
+   --> binance_data_server/src/pipelines/pipelines.rs:157:8
+    |
+156 | impl DataSlice {
+    | -------------- method in this implementation
+157 |     fn reset(&mut self) {
+    |        ^^^^^
+
+warning: struct `ResamplingPipeline` is never constructed
+   --> binance_data_server/src/pipelines/pipelines.rs:777:12
+    |
+777 | pub struct ResamplingPipeline {
+    |            ^^^^^^^^^^^^^^^^^^
+
+warning: associated items `new` and `run_and_wait` are never used
+   --> binance_data_server/src/pipelines/pipelines.rs:782:12
+    |
+781 | impl ResamplingPipeline {
+    | ----------------------- associated items in this implementation
+782 |     pub fn new() -> Self {
+    |            ^^^
+...
+788 |     pub async fn run_and_wait(&self) -> Result<()> {
+    |                  ^^^^^^^^^^^^
+
+warning: associated function `new` is never used
+  --> binance_data_server/src/pipelines/utils.rs:25:12
+   |
+16 | impl Segment {
+   | ------------ associated function in this implementation
+...
+25 |     pub fn new(start: u64, end: u64) -> Self {
+   |            ^^^
+
+warning: function `next_aligned_instant` is never used
+  --> binance_data_server/src/pipelines/utils.rs:62:8
+   |
+62 | pub fn next_aligned_instant(duration: Duration) -> (Instant, u64) {
+   |        ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `get_current_time` is never used
+  --> binance_data_server/src/pipelines/utils.rs:85:8
+   |
+85 | pub fn get_current_time() -> DateTime<chrono::Local> {
+   |        ^^^^^^^^^^^^^^^^
+
+warning: unused `std::result::Result` that must be used
+   --> binance_data_server/src/binance_grpc_server.rs:355:21
+    |
+355 |                     tx.send(Ok(response)).await;
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+    = note: `#[warn(unused_must_use)]` on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+355 |                     let _ = tx.send(Ok(response)).await;
+    |                     +++++++
+
+warning: `proxy_server` (bin "data_server") generated 46 warnings (run `cargo fix --bin "data_server"` to apply 26 suggestions)
+    Finished release [optimized] target(s) in 0.51s
+     Running `target/release/data_server`
+[2m2024-08-04T08:48:52.883555Z[0m [32m INFO[0m [2mdata_server[0m[2m:[0m ready to accept request from 0.0.0.0:10000
+  [2m2024-08-04T08:48:52.883624Z[0m [32m INFO[0m [1;32mdata_server[0m[32m: [32mready to accept request from 0.0.0.0:10000[0m
+    [2;3mat[0m binance_data_server/src/binance_grpc_server.rs:366
+
+[2m2024-08-04T08:48:52.884160Z[0m [32m INFO[0m [2mactix_server::builder[0m[2m:[0m starting 1 workers
+  [2m2024-08-04T08:48:52.884327Z[0m [32m INFO[0m [1;32mactix_server::builder[0m[32m: [32mstarting 1 workers[0m
+    [2;3mat[0m /home/ubuntu/.cargo/registry/src/index.crates.io-6f17d22bba15001f/actix-server-2.3.0/src/builder.rs:240
+
+[2m2024-08-04T08:48:52.884389Z[0m [32m INFO[0m [2mactix_server::server[0m[2m:[0m Tokio runtime found; starting in existing Tokio runtime
+  [2m2024-08-04T08:48:52.884407Z[0m [32m INFO[0m [1;32mactix_server::server[0m[32m: [32mTokio runtime found; starting in existing Tokio runtime[0m
+    [2;3mat[0m /home/ubuntu/.cargo/registry/src/index.crates.io-6f17d22bba15001f/actix-server-2.3.0/src/server.rs:197
+
+[2m2024-08-04T08:49:04.696930Z[0m [32m INFO[0m [1mget_market_data_by_batch[0m[1m{[0m[3mself[0m[2m=[0mTradeService { config: Mutex { data: BinanceServerConfig { port: 10000, api_key: "api key", default_buffer_size: 1000, max_threads: 4, metrics_server_port: 8080, recover_batch_size: 100 } }, binance_mgr: Mutex { data: BinanceDataManager { listen_key: BinanceServerConfig { port: 10000, api_key: "api key", default_buffer_size: 1000, max_threads: 4, metrics_server_port: 8080, recover_batch_size: 100 } } }, connections: {} } [3mrequest[0m[2m=[0mRequest { metadata: MetadataMap { headers: {"content-type": "application/grpc", "te": "trailers", "grpc-accept-encoding": "identity, deflate, gzip", "user-agent": "grpc-python/1.62.2 grpc-c/39.0.0 (linux; chttp2)"} }, message: GetMarketDataBatchRequest { symbols: ["btcusdt", "ethusdt", "bnbusdt", "adausdt", "dogeusdt", "xrpusdt", "ltcusdt", "linkusdt", "dotusdt", "uniusdt"], granularity: Some(TimeDuration { value: 60, unit: Seconds }) }, extensions: Extensions }[1m}[0m[2m:[0m [2mdata_server[0m[2m:[0m requesting ["btcusdt", "ethusdt", "bnbusdt", "adausdt", "dogeusdt", "xrpusdt", "ltcusdt", "linkusdt", "dotusdt", "uniusdt"] with time interval of TimeDelta { secs: 60, nanos: 0 }
+  [2m2024-08-04T08:49:04.697012Z[0m [32m INFO[0m [1;32mdata_server[0m[32m: [32mrequesting ["btcusdt", "ethusdt", "bnbusdt", "adausdt", "dogeusdt", "xrpusdt", "ltcusdt", "linkusdt", "dotusdt", "uniusdt"] with time interval of TimeDelta { secs: 60, nanos: 0 }[0m
+    [2;3mat[0m binance_data_server/src/binance_grpc_server.rs:316
+    [2;3min[0m data_server::[1mget_market_data_by_batch[0m [2;3mwith[0m [1mself[0m: TradeService { config: Mutex { data: BinanceServerConfig { port: 10000, api_key: "api key", default_buffer_size: 1000, max_threads: 4, metrics_server_port: 8080, recover_batch_size: 100 } }, binance_mgr: Mutex { data: BinanceDataManager { listen_key: BinanceServerConfig { port: 10000, api_key: "api key", default_buffer_size: 1000, max_threads: 4, metrics_server_port: 8080, recover_batch_size: 100 } } }, connections: {} }, [1mrequest[0m: Request { metadata: MetadataMap { headers: {"content-type": "application/grpc", "te": "trailers", "grpc-accept-encoding": "identity, deflate, gzip", "user-agent": "grpc-python/1.62.2 grpc-c/39.0.0 (linux; chttp2)"} }, message: GetMarketDataBatchRequest { symbols: ["btcusdt", "ethusdt", "bnbusdt", "adausdt", "dogeusdt", "xrpusdt", "ltcusdt", "linkusdt", "dotusdt", "uniusdt"], granularity: Some(TimeDuration { value: 60, unit: Seconds }) }, extensions: Extensions }
+
+[2m2024-08-04T08:49:04.699304Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 4, nanos: 699244377 }
+  [2m2024-08-04T08:49:04.699372Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 4, nanos: 699244377 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:49:04.699304Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 4, nanos: 699227265 }
+  [2m2024-08-04T08:49:04.699438Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 4, nanos: 699227265 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:49:04.699487Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 4, nanos: 699484919 }
+  [2m2024-08-04T08:49:04.699504Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 4, nanos: 699484919 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:49:04.699524Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 4, nanos: 699522515 }
+[2m2024-08-04T08:49:04.699536Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 4, nanos: 699488819 }
+  [2m2024-08-04T08:49:04.699570Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 4, nanos: 699488819 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+  [2m2024-08-04T08:49:04.699538Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 4, nanos: 699522515 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:49:04.699580Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 4, nanos: 699543215 }
+  [2m2024-08-04T08:49:04.699681Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 4, nanos: 699543215 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:49:04.699702Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 4, nanos: 699700512 }
+  [2m2024-08-04T08:49:04.699718Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 4, nanos: 699700512 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:49:04.699629Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 4, nanos: 699626376 }
+  [2m2024-08-04T08:49:04.699764Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 4, nanos: 699626376 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:49:04.699659Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 4, nanos: 699657372 }
+  [2m2024-08-04T08:49:04.699802Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 4, nanos: 699657372 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:49:04.699415Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 4, nanos: 699412462 }
+  [2m2024-08-04T08:49:04.699961Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 4, nanos: 699412462 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:50:01.156872Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 1, nanos: 156848635 }
+  [2m2024-08-04T08:50:01.156935Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 1, nanos: 156848635 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:50:01.382945Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 1, nanos: 382920190 }
+  [2m2024-08-04T08:50:01.382999Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 1, nanos: 382920190 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:50:01.627138Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 1, nanos: 627111378 }
+  [2m2024-08-04T08:50:01.627204Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 1, nanos: 627111378 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:50:02.500339Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 2, nanos: 500312805 }
+  [2m2024-08-04T08:50:02.500392Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 2, nanos: 500312805 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:50:03.570718Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 3, nanos: 570693000 }
+  [2m2024-08-04T08:50:03.570775Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 3, nanos: 570693000 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:50:03.637175Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 3, nanos: 637148806 }
+  [2m2024-08-04T08:50:03.637228Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 3, nanos: 637148806 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:50:04.488938Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 4, nanos: 488931511 }
+  [2m2024-08-04T08:50:04.488995Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 4, nanos: 488931511 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:50:04.970996Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 4, nanos: 970974108 }
+  [2m2024-08-04T08:50:04.971062Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 4, nanos: 970974108 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:50:06.088092Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 6, nanos: 88067837 }
+  [2m2024-08-04T08:50:06.088147Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 6, nanos: 88067837 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:50:12.143735Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 12, nanos: 143712410 }
+  [2m2024-08-04T08:50:12.143789Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 12, nanos: 143712410 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:51:00.337937Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 0, nanos: 337911354 }
+  [2m2024-08-04T08:51:00.338004Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 0, nanos: 337911354 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:51:01.110551Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 1, nanos: 110543331 }
+  [2m2024-08-04T08:51:01.110634Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 1, nanos: 110543331 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:51:01.656810Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 1, nanos: 656783923 }
+  [2m2024-08-04T08:51:01.656866Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 1, nanos: 656783923 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:51:01.725019Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 1, nanos: 725011195 }
+  [2m2024-08-04T08:51:01.725070Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 1, nanos: 725011195 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:51:02.105615Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 2, nanos: 105594362 }
+  [2m2024-08-04T08:51:02.105666Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 2, nanos: 105594362 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:51:03.282418Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 3, nanos: 282394401 }
+  [2m2024-08-04T08:51:03.282468Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 3, nanos: 282394401 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:51:04.891278Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 4, nanos: 891252861 }
+  [2m2024-08-04T08:51:04.891332Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 4, nanos: 891252861 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:51:08.010357Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 8, nanos: 10333788 }
+  [2m2024-08-04T08:51:08.010416Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 8, nanos: 10333788 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:51:16.521246Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 16, nanos: 521224502 }
+  [2m2024-08-04T08:51:16.521304Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 16, nanos: 521224502 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:51:20.474146Z[0m [32m INFO[0m [2mdata_server::pipelines::utils[0m[2m:[0m duration until next interval is TimeDelta { secs: 20, nanos: 474118463 }
+  [2m2024-08-04T08:51:20.474197Z[0m [32m INFO[0m [1;32mdata_server::pipelines::utils[0m[32m: [32mduration until next interval is TimeDelta { secs: 20, nanos: 474118463 }[0m
+    [2;3mat[0m binance_data_server/src/pipelines/utils.rs:50
+
+[2m2024-08-04T08:51:54.389392Z[0m [32m INFO[0m [2mactix_server::server[0m[2m:[0m SIGINT received; starting forced shutdown
+  [2m2024-08-04T08:51:54.389461Z[0m [32m INFO[0m [1;32mactix_server::server[0m[32m: [32mSIGINT received; starting forced shutdown[0m
+    [2;3mat[0m /home/ubuntu/.cargo/registry/src/index.crates.io-6f17d22bba15001f/actix-server-2.3.0/src/server.rs:319
+
+[2m2024-08-04T08:51:54.389541Z[0m [32m INFO[0m [2mactix_server::accept[0m[2m:[0m accept thread stopped
+  [2m2024-08-04T08:51:54.389563Z[0m [32m INFO[0m [1;32mactix_server::accept[0m[32m: [32maccept thread stopped[0m
+    [2;3mat[0m /home/ubuntu/.cargo/registry/src/index.crates.io-6f17d22bba15001f/actix-server-2.3.0/src/accept.rs:143
+
+[2m2024-08-04T08:51:54.389697Z[0m [33m WARN[0m [2mdata_server[0m[2m:[0m Ctrl+C received. Aborting tasks.
+[2m2024-08-04T08:51:54.389710Z[0m [32m INFO[0m [2mactix_server::worker[0m[2m:[0m shutting down idle worker
+  [2m2024-08-04T08:51:54.389755Z[0m [32m INFO[0m [1;32mactix_server::worker[0m[32m: [32mshutting down idle worker[0m
+    [2;3mat[0m /home/ubuntu/.cargo/registry/src/index.crates.io-6f17d22bba15001f/actix-server-2.3.0/src/worker.rs:595
+
+  [2m2024-08-04T08:51:54.389726Z[0m [33m WARN[0m [1;33mdata_server[0m[33m: [33mCtrl+C received. Aborting tasks.[0m
+    [2;3mat[0m binance_data_server/src/binance_grpc_server.rs:418
+

@@ -672,7 +672,7 @@ impl Transformer for ResamplingTransformerWithTiming {
                             nr_missing += missed.size();
                         }
                     }
-                    cursor = agg_trade.aggregated_trade_id;
+                    cursor = cursor.max(agg_trade.aggregated_trade_id);
                 }
 
                 copied_data.update_from_agg_trade(agg_trade);

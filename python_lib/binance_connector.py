@@ -53,16 +53,35 @@ class TradeClient:
         for rb in response_stream:
             yield rb
 
+def maintain_latest_1000_entries(filename, new_entries):
+    with open(filename, 'r') as file:
+        lines = file.readlines()
+
+    lines.extend(new_entries)
+
+    if len(lines) > 1000:
+        lines = lines[-1000:]
+
+    with open(filename, 'w') as file:
+        file.writelines(lines)
+
 if __name__ == '__main__':
     client = TradeClient(host = "localhost", port=10000)
     start_time = time.time()
     import datetime
     symbols = ['btcusdt', 'ethusdt', 'bnbusdt', 'adausdt', 'dogeusdt', 'xrpusdt', 'ltcusdt', 'linkusdt', 'dotusdt', 'uniusdt']
+    for symbol in symbols:
+        filename = symbol + ".txt"
+        os.system(f"rm -f {filename}")
+        # create a file with the symbol name
+        with open(filename, 'w') as file:
+            file.write("")
+    file_for_each_symbol = {}
     # register_response = client.register_symbols(["btcusdt", "ethusdt", "bnbusdt"])
-    with open("btcusdt_15s.json", 'w') as f:
-        for data in client.get_market_data_by_batch(['btcusdt'], time_interval=15):
+    for data in client.get_market_data_by_batch(symbols, time_interval=60):
             # if you want to convert to pandas dataframe
             # df = trade.to_pandas()
-            print(data)
-            # f.write( f"{data.__str__()}")
+            real_data = data.__str__()
+            without_space =  real_data.replace(" ", "").replace("\n", ",")
+            maintain_latest_1000_entries(data.data.symbol + ".txt", [without_space + "\n"])
     
