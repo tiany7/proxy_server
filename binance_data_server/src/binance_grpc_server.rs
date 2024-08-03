@@ -344,13 +344,13 @@ impl Trade for TradeService {
                     vec![data_output],
                     vec![resample_tx],
                     granularity,
+                    symbol,
                 )
                 .transform()
                 .await;
             });
             tokio::spawn(async move {
                 while let Some(data) = resample_rx.recv().await {
-                    tracing::info!("data {data:?}");
                     let response = GetMarketDataResponse { data: Some(data) };
                     tx.send(Ok(response)).await;
                 }

@@ -65,7 +65,6 @@ message GetMarketDataResponse {
 }
 
 message BarData {
-    
     uint64 open_time = 1;
     double open = 2;
     double high = 3;

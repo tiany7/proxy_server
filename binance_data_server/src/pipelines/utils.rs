@@ -1,3 +1,5 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use anyhow::{Ok, Result};
 use chrono::{DateTime, Timelike};
 use tokio::time::{self, Duration, Instant};
@@ -51,9 +53,33 @@ pub async fn next_interval_time_point(interval: Duration) -> (Instant, u64) {
     );
     (
         Instant::now()
-            + Duration::from_secs(60 - (duration_until_next_interval.num_seconds() as u64)) - Duration::from_millis(30),
+            + Duration::from_secs(60 - (duration_until_next_interval.num_seconds() as u64))
+            - Duration::from_millis(30),
         ((next_time.timestamp() / 1000) as u64) * 1000,
     )
+}
+
+pub fn next_aligned_instant(duration: Duration) -> (Instant, u64) {
+    assert_eq!(
+        60 % duration.as_secs(),
+        0,
+        "Duration must be divisible by 60"
+    );
+
+    let now = Instant::now();
+
+    let now_since_epoch = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards")
+        .as_secs();
+    let period_secs = duration.as_secs();
+    let next_aligned_secs = ((now_since_epoch / period_secs) + 1) * period_secs;
+    let next_instant = Instant::now() + Duration::from_secs(next_aligned_secs - now_since_epoch);
+
+    // 将Instant转换为对应的Unix时间戳
+    let unix_timestamp = next_aligned_secs;
+
+    (next_instant, unix_timestamp)
 }
 
 pub fn get_current_time() -> DateTime<chrono::Local> {

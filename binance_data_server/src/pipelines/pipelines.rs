@@ -23,7 +23,7 @@ use trade::BarData;
 use trade::Column;
 
 use super::utils as pipeline_utils;
-use pipeline_utils::next_interval_time_point;
+use pipeline_utils::{next_aligned_instant, next_interval_time_point};
 
 #[derive(Debug, Clone)]
 pub struct Segment {
@@ -235,6 +235,26 @@ impl DataSlice {
             symbol: self.symbol.to_string(),
         }
     }
+
+    pub fn to_bar_data_with_symbol(&self, symbol: String) -> BarData {
+        BarData {
+            low: self.low_price,
+            high: self.high_price,
+            open: self.open_price,
+            close: self.close_price,
+            volume: self.volume,
+            quote_asset_volume: self.quote_asset_volume,
+            number_of_trades: self.number_of_trades,
+            taker_buy_base_asset_volume: self.taker_buy_base_asset_volume,
+            taker_buy_quote_asset_volume: self.taker_buy_quote_asset_volume,
+            min_id: self.min_id,
+            max_id: self.max_id,
+            missing_count: self.missing_count,
+            open_time: self.open_time,
+            close_time: self.close_time,
+            symbol,
+        }
+    }
 }
 
 #[async_trait]
@@ -273,6 +293,7 @@ pub struct CompressionTransformer {
 pub struct ResamplingTransformerWithTiming {
     inner: Arc<Mutex<ResamplingTransformerInnerV2>>,
     output: Vec<mpsc::Sender<BarData>>,
+    name: String,
 }
 
 impl ResamplingTransformer {
@@ -345,7 +366,6 @@ impl Transformer for ResamplingTransformer {
                 let mut copied_data = this_data;
                 // count number of trades
                 copied_data.number_of_trades += 1;
-                copied_data.symbol = std::mem::take(&mut copied_data.symbol);
                 copied_data.close_price = agg_trade.price;
                 copied_data.close_time = agg_trade.trade_time;
                 // update the cursor
@@ -572,6 +592,7 @@ impl ResamplingTransformerWithTiming {
         input: Vec<mpsc::Receiver<AggTradeData>>,
         output: Vec<mpsc::Sender<BarData>>,
         granularity: chrono::Duration,
+        name: String,
     ) -> Self {
         ResamplingTransformerWithTiming {
             inner: Arc::new(Mutex::new(ResamplingTransformerInnerV2 {
@@ -579,6 +600,7 @@ impl ResamplingTransformerWithTiming {
                 granularity,
             })),
             output,
+            name,
         }
     }
 }
@@ -681,8 +703,8 @@ impl Transformer for ResamplingTransformerWithTiming {
                     break;
                 }
                 // allow 15ms/ 100 more runs or the fetched data's stamp is greater than the next time point
-                let mut counter = 200;
-                let mut duration = tokio::time::Duration::from_millis(100);
+                let counter = 200;
+                let duration = tokio::time::Duration::from_millis(100);
                 let (tx, mut rx) = tokio::sync::mpsc::channel(100);
                 let inner_clone_v2 = inner_clone_v2.clone();
                 let buffered_unused = unused_buffer.clone();
@@ -698,7 +720,6 @@ impl Transformer for ResamplingTransformerWithTiming {
                         let agg_trade: AggTradeData = agg_trade.unwrap();
                         if agg_trade.trade_time > next_timestamp {
                             buffered_unused.lock().await.push(agg_trade);
-                            tracing::error!("stale file handle");
                             break;
                         } else {
                             tx.send(agg_trade).await.expect("Failed to send data");
@@ -710,7 +731,6 @@ impl Transformer for ResamplingTransformerWithTiming {
                     _ = updater_task => {
                         let mut data = data_clone_v2.load();
                         while let Some(agg_trade) = rx.recv().await {
-                            tracing::warn!("nice to hear it");
                             data.update_from_agg_trade(agg_trade);
                         }
                     }
@@ -733,12 +753,17 @@ impl Transformer for ResamplingTransformerWithTiming {
 
         let tx = self.output[0].clone();
         // sender thread
+        let name = self.name.clone();
         tokio::spawn(async move {
             loop {
                 notify_clone.notified().await;
                 let this_data = data_clone.load();
                 data_clone.store(DataSlice::default());
-                if tx.send(this_data.to_bar_data()).await.is_err() {
+                if tx
+                    .send(this_data.to_bar_data_with_symbol(name.clone()))
+                    .await
+                    .is_err()
+                {
                     should_quit.store(true, Ordering::Relaxed);
                     break;
                 }

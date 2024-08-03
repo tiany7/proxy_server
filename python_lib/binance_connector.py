@@ -57,9 +57,10 @@ if __name__ == '__main__':
     client = TradeClient(host = "localhost", port=10000)
     start_time = time.time()
     import datetime
+    symbols = ['btcusdt', 'ethusdt', 'bnbusdt', 'adausdt', 'dogeusdt', 'xrpusdt', 'ltcusdt', 'linkusdt', 'dotusdt', 'uniusdt']
     # register_response = client.register_symbols(["btcusdt", "ethusdt", "bnbusdt"])
     with open("btcusdt_15s.json", 'w') as f:
-        for data in client.get_market_data_by_batch(['btcusdt'], time_interval=60):
+        for data in client.get_market_data_by_batch(['btcusdt'], time_interval=15):
             # if you want to convert to pandas dataframe
             # df = trade.to_pandas()
             print(data)
