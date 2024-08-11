@@ -82,6 +82,28 @@ pub fn next_aligned_instant(duration: Duration) -> (Instant, u64) {
     (next_instant, unix_timestamp)
 }
 
+pub fn next_interval(seconds: u32) -> (Instant, u64) {
+    assert!(seconds > 0 && seconds <= 60, "Seconds must be between 1 and 60");
+    assert!(60 % seconds == 0, "Seconds must be divisible by 60");
+
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+    let total_millis = now.as_millis(); // total milliseconds since UNIX epoch
+
+    let next_target_sec = ((total_millis / 1000) / seconds as u128 + 1) * seconds as u128;
+    let next_target_instant = Instant::now() + Duration::from_secs(next_target_sec as u64 - now.as_secs());
+
+    let just_before_next_sec = Duration::from_millis((next_target_sec * 1000 - 1) as u64 - total_millis as u64);
+    let just_before_next_instant = Instant::now() + just_before_next_sec;
+
+    let just_before_next_timestamp = SystemTime::now() + just_before_next_sec;
+    let just_before_next_timestamp_millis = just_before_next_timestamp
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+
+    (next_target_instant, just_before_next_timestamp_millis)
+}
+
 pub fn get_current_time() -> DateTime<chrono::Local> {
     chrono::Local::now()
 }

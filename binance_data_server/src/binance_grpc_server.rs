@@ -352,7 +352,8 @@ impl Trade for TradeService {
             tokio::spawn(async move {
                 while let Some(data) = resample_rx.recv().await {
                     let response = GetMarketDataResponse { data: Some(data) };
-                    tx.send(Ok(response)).await;
+                    tracing::info!("sending response {:?}", response);
+                    let _ = tx.send(Ok(response)).await;
                 }
             });
         }

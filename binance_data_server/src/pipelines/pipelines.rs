@@ -23,7 +23,7 @@ use trade::BarData;
 use trade::Column;
 
 use super::utils as pipeline_utils;
-use pipeline_utils::{next_aligned_instant, next_interval_time_point};
+use pipeline_utils::{next_interval, next_interval_time_point};
 
 #[derive(Debug, Clone)]
 pub struct Segment {
@@ -173,13 +173,15 @@ impl DataSlice {
     }
 
     pub fn update_from_agg_trade(&mut self, agg_trade: AggTradeData) {
-        self.number_of_trades += 1;
-        self.close_price = agg_trade.price;
-        self.close_time = agg_trade.trade_time;
-        if self.open_time == 0 {
-            self.open_time = agg_trade.trade_time;
+        if self.number_of_trades == 0 {
+            // self.open_time = agg_trade.trade_time;
             self.open_price = agg_trade.price;
+            self.min_id = agg_trade.aggregated_trade_id;
         }
+        self.number_of_trades += agg_trade.last_break_trade_id - agg_trade.first_break_trade_id + 1;
+        self.close_price = agg_trade.price;
+        // self.close_time = agg_trade.trade_time;
+        
         if self.last.is_none() {
             self.last = Some(agg_trade.aggregated_trade_id);
         }
@@ -188,16 +190,11 @@ impl DataSlice {
         }
         if agg_trade.price < self.low_price {
             self.low_price = agg_trade.price;
-            self.min_id = agg_trade.aggregated_trade_id;
         }
         if agg_trade.price > self.high_price {
             self.high_price = agg_trade.price;
-            self.max_id = agg_trade.aggregated_trade_id;
         }
-        if self.number_of_trades == 1 {
-            self.open_price = agg_trade.price;
-            self.open_time = agg_trade.trade_time;
-        }
+        self.max_id = self.max_id.max(agg_trade.aggregated_trade_id);
         self.volume += agg_trade.quantity;
         self.quote_asset_volume += agg_trade.price * agg_trade.quantity;
         self.taker_buy_base_asset_volume += {
@@ -628,19 +625,20 @@ impl Transformer for ResamplingTransformerWithTiming {
         let sent_to_downstream_clone = sent_to_downstream.clone();
         let inner_clone = self.inner.clone();
 
-        let mut unused_agg_trade = Arc::new(tokio::sync::Mutex::new(vec![]));
+        let mut unused_agg_trade = Arc::new(tokio::sync::Mutex::<Vec<AggTradeData>>::new(vec![]));
         let mut unused_buffer = unused_agg_trade.clone();
         // timer task
         let notify = Arc::new(tokio::sync::Notify::new());
         let notify_clone = notify.clone();
         let mut cursor = 0; // this is the global cursor that records the current id position
-        let mut cursor = 0; // this is the global cursor that records the current id position
+        // let (tx, mut rx) = tokio::sync::mpsc::channel(3);
         tokio::spawn(async move {
             let mut missing_segments = vec![];
             let mut nr_missing = 0;
 
             loop {
                 let agg_trade = if let Some(agg_trade) = unused_agg_trade.lock().await.pop() {
+                    // tracing::error!("agg id is {:?}", agg_trade.aggregated_trade_id);
                     agg_trade
                 } else {
                     let mut ticket = inner_clone.lock().await;
@@ -649,22 +647,21 @@ impl Transformer for ResamplingTransformerWithTiming {
                     if agg_trade.is_none() {
                         break;
                     }
-
+                    // tracing::warn!("agg id is {:?}", agg_trade.as_ref().unwrap().aggregated_trade_id);
                     let agg_trade: AggTradeData = agg_trade.unwrap();
                     agg_trade
                 };
+                // info!("agg_trade: {:?}", agg_trade);
                 let this_data = data.load();
                 let mut copied_data = this_data;
-                // count number of trades
-                copied_data.number_of_trades += 1;
-                copied_data.close_price = agg_trade.price;
-                copied_data.symbol = std::mem::take(&mut copied_data.symbol);
-                copied_data.close_time = agg_trade.trade_time;
+
                 // update the cursor
                 if cursor == 0 {
                     cursor = agg_trade.aggregated_trade_id;
                 } else {
-                    if agg_trade.aggregated_trade_id - cursor > 1 {
+                    if agg_trade.aggregated_trade_id < cursor {
+                        // panic!("{:?} < {:?}", agg_trade.aggregated_trade_id, cursor);
+                    } else if agg_trade.aggregated_trade_id - cursor > 1 {
                         if let Ok(missed) =
                             pipeline_utils::Segment::try_new(cursor, agg_trade.aggregated_trade_id)
                         {
@@ -690,15 +687,17 @@ impl Transformer for ResamplingTransformerWithTiming {
         });
         // timer thread
         tokio::spawn(async move {
-            let interval_duration = this_time_gap.to_std().unwrap();
-
-            // log the instant by human readable format
+            let d = this_time_gap.to_std().unwrap();
+            let interval_duration = d.as_secs();
 
             loop {
-                let (next_time_point, next_timestamp) =
-                    next_interval_time_point(interval_duration).await;
+                let (_, next_timestamp) =
+                next_interval(interval_duration as u32);
+
+                let time_point = next_interval_time_point(d).await;
+                // info!("next time point is: {:?}, next timestamp is: {:?}", next_time_point, next_timestamp);
                 // info!("Current time is: {:?}", pipeline_utils::get_current_time());
-                tokio::time::sleep_until(next_time_point).await;
+                tokio::time::sleep_until(time_point.0).await;
                 if should_quit_clone.load(Ordering::Relaxed) {
                     break;
                 }
@@ -729,16 +728,22 @@ impl Transformer for ResamplingTransformerWithTiming {
                 // this guratnees that the agg_trade is in current time scope
                 tokio::select! {
                     _ = updater_task => {
-                        let mut data = data_clone_v2.load();
+                        let mut temp_data = data_clone_v2.load();
                         while let Some(agg_trade) = rx.recv().await {
-                            data.update_from_agg_trade(agg_trade);
+                            temp_data.update_from_agg_trade(agg_trade);
                         }
+                        temp_data.open_time = next_timestamp - interval_duration * 1000 + 1;
+                        temp_data.close_time = next_timestamp;
+                        data_clone_v2.store(temp_data);
                     }
                     _ = tokio::time::sleep(duration) => {
-                        let mut data = data_clone_v2.load();
+                        let mut temp_data = data_clone_v2.load();
                         while let Some(agg_trade) = rx.recv().await {
-                            data.update_from_agg_trade(agg_trade);
+                            temp_data.update_from_agg_trade(agg_trade);
                         }
+                        temp_data.open_time = next_timestamp - interval_duration * 1000 + 1;
+                        temp_data.close_time = next_timestamp;
+                        data_clone_v2.store(temp_data);
                     }
                 }
 

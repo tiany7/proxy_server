@@ -69,7 +69,7 @@ if __name__ == '__main__':
     client = TradeClient(host = "localhost", port=10000)
     start_time = time.time()
     import datetime
-    symbols = ['btcusdt', 'ethusdt', 'bnbusdt', 'adausdt', 'dogeusdt', 'xrpusdt', 'ltcusdt', 'linkusdt', 'dotusdt', 'uniusdt']
+    symbols = ['btcusdt'] #, 'ethusdt', 'bnbusdt', 'adausdt', 'dogeusdt', 'xrpusdt', 'ltcusdt', 'linkusdt', 'dotusdt', 'uniusdt']
     for symbol in symbols:
         filename = symbol + ".txt"
         os.system(f"rm -f {filename}")
@@ -81,7 +81,8 @@ if __name__ == '__main__':
     for data in client.get_market_data_by_batch(symbols, time_interval=60):
             # if you want to convert to pandas dataframe
             # df = trade.to_pandas()
-            real_data = data.__str__()
-            without_space =  real_data.replace(" ", "").replace("\n", ",")
-            maintain_latest_1000_entries(data.data.symbol + ".txt", [without_space + "\n"])
+            print(data)
+            # real_data = data.__str__()
+            # without_space =  real_data.replace(" ", "").replace("\n", ",")
+            # maintain_latest_1000_entries(data.data.symbol + ".txt", [without_space + "\n"])
     
