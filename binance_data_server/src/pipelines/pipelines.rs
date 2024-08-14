@@ -764,6 +764,7 @@ impl Transformer for ResamplingTransformerWithTiming {
         let market_client = self.market_client.clone();
         tokio::spawn(async move {
             let mut last_data = DataSlice::default();
+            let name_clone = name.clone();
             loop {
                 notify_clone.notified().await;
                 let mut this_data = data_clone.load();
@@ -776,7 +777,7 @@ impl Transformer for ResamplingTransformerWithTiming {
                         this_data.low_price = last_data.low_price;
                     } else {
                         let mut last_1000_agg_trade = market_client
-                            .get_agg_trades(name, None, None, None, 1000)
+                            .get_agg_trades(name_clone.clone(), None, None, None, 1000)
                             .await
                             .map_err(|e| anyhow::anyhow!("Error fetching data: {:?}", e))
                             .unwrap_or(vec![])
@@ -798,7 +799,11 @@ impl Transformer for ResamplingTransformerWithTiming {
                         while let Some(agg_trade) = last_1000_agg_trade.pop() {
                             if is_first_trade {
                                 left_bound =
+<<<<<<< HEAD
                                     this_period_start(agg_trade.trade_time, interval_duration)
+=======
+                                    this_period_start(agg_trade.trade_time, interval_duration as u32)
+>>>>>>> [optimize] fault tolerance
                             }
                             if agg_trade.trade_time < left_bound {
                                 break;

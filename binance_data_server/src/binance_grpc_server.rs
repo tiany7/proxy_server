@@ -318,8 +318,10 @@ impl Trade for TradeService {
             requested_symbols,
             granularity
         );
+
         // let key = fmt_key(&requested_symbol, "aggTrade", &granularity.to_string());
         let binance_mgr = self.binance_mgr.clone();
+        let market_client = binance_mgr.lock().await.get_shared_market_client();
         let mut data_stream_by_symbol = binance_mgr
             .lock()
             .await
@@ -331,6 +333,7 @@ impl Trade for TradeService {
             let tx = tx.clone();
             let (resample_tx, mut resample_rx) = mpsc::channel(5);
             let (data_input, mut data_output) = mpsc::channel(1000);
+            let market_client = market_client.clone();
             tokio::spawn(async move {
                 while let Ok(msg) = data_stream.recv().await {
                     if let Err(e) = data_input.send(msg).await {
@@ -345,6 +348,7 @@ impl Trade for TradeService {
                     vec![resample_tx],
                     granularity,
                     symbol,
+                    market_client,
                 )
                 .transform()
                 .await;
