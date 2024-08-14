@@ -105,6 +105,10 @@ impl BinanceDataManager {
         }
     }
 
+    pub fn get_shared_market_client(&self) -> Market {
+        self.market_client.clone()
+    }
+
     // will register the symbol in the dict so that we can use it later
     // precondition: the symbol is not registered, which is guaranteed by the filters
     // why not result? cuz I don't see any errors here!
@@ -434,16 +438,14 @@ impl BinanceDataManager {
         }
     }
 
-    pub async fn get_agg_trades(
+    pub async fn get_most_recent_agg_trades(
         &mut self,
         symbol: &str,
-        start_time: u64,
-        end_time: u64,
         batch_size: u16,
     ) -> Result<Vec<AggTrade>, Error> {
         let trades = self
             .market_client
-            .get_agg_trades(symbol, None, Some(start_time), Some(end_time), batch_size)
+            .get_agg_trades(symbol, None, None, None, batch_size)
             .await?;
         Ok(trades)
     }
