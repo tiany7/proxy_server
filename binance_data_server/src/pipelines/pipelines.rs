@@ -779,7 +779,6 @@ impl Transformer for ResamplingTransformerWithTiming {
                         let mut last_1000_agg_trade = market_client
                             .get_agg_trades(name_clone.clone(), None, None, None, 1000)
                             .await
-                            .map_err(|e| anyhow::anyhow!("Error fetching data: {:?}", e))
                             .unwrap_or(vec![])
                             .into_iter()
                             .map(|x| AggTradeData {
@@ -794,16 +793,13 @@ impl Transformer for ResamplingTransformerWithTiming {
                                 aggregated_trade_id: x.agg_id,
                             })
                             .collect::<Vec<AggTradeData>>();
-                        let mut is_first_trade = false;
+                        let mut is_first_trade = true;
                         let mut left_bound = 0;
                         while let Some(agg_trade) = last_1000_agg_trade.pop() {
                             if is_first_trade {
                                 left_bound =
-<<<<<<< HEAD
-                                    this_period_start(agg_trade.trade_time, interval_duration)
-=======
-                                    this_period_start(agg_trade.trade_time, interval_duration as u32)
->>>>>>> [optimize] fault tolerance
+                                    this_period_start(agg_trade.trade_time - interval_duration * 1000, interval_duration as u32);
+                                is_first_trade = false;
                             }
                             if agg_trade.trade_time < left_bound {
                                 break;
