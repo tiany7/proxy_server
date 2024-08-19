@@ -109,6 +109,29 @@ pub fn next_interval(seconds: u32) -> (Instant, u64) {
     (next_target_instant, just_before_next_timestamp_millis)
 }
 
+pub fn get_next_instant_and_timestamp(seconds: u64) -> (Instant, u64) {
+    assert!(
+        seconds > 0 && seconds <= 60,
+        "Seconds must be between 1 and 60"
+    );
+    assert!(60 % seconds == 0, "Seconds must be divisible by 60");
+
+    // our first task is to calculate the current timestamp
+
+    let now = SystemTime::now();
+
+    let timestamp_millis = now
+        .duration_since(UNIX_EPOCH)
+        .expect("invalid timestamp")
+        .as_millis();
+
+    let milliseconds = seconds as u128 * 1000;
+    let next_timestamp = (timestamp_millis / milliseconds + 1) * milliseconds;
+    let diff = next_timestamp - timestamp_millis;
+    let instant = Instant::now() + Duration::from_millis(diff as u64) - Duration::from_millis(60);
+    (instant, next_timestamp as u64 - 1)
+}
+
 pub fn this_period_start(timestamp: u64, seconds: u32) -> u64 {
     assert!(
         seconds > 0 && seconds <= 60,

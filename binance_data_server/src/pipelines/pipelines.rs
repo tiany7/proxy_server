@@ -5,7 +5,7 @@ pub mod trade {
 use std::any::Any;
 use std::ops::Add;
 use std::result::Result::Ok;
-use std::sync::atomic::{AtomicBool, AtomicI8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::vec::Vec;
 
@@ -23,7 +23,9 @@ use trade::BarData;
 use trade::Column;
 
 use super::utils as pipeline_utils;
-use pipeline_utils::{next_interval, next_interval_time_point, this_period_start};
+use pipeline_utils::{
+    get_next_instant_and_timestamp, next_interval, next_interval_time_point, this_period_start,
+};
 
 #[derive(Debug, Clone)]
 pub struct Segment {
@@ -612,6 +614,7 @@ impl Transformer for ResamplingTransformerWithTiming {
         // there is a timer that controls the instant to send the message to down stream
         let this = self.inner.lock().await;
         let this_time_gap = this.granularity;
+        let time_gap_in_seconds = this_time_gap.num_seconds();
         drop(this);
         // create a shared data structure to allow routinely update
 
@@ -624,8 +627,6 @@ impl Transformer for ResamplingTransformerWithTiming {
         let atomic_lock_timer = atomic_lock.clone();
         let should_quit = Arc::new(AtomicBool::new(false));
         let should_quit_clone = should_quit.clone();
-        let sent_to_downstream = Arc::new(tokio::sync::Notify::new());
-        let sent_to_downstream_clone = sent_to_downstream.clone();
         let inner_clone = self.inner.clone();
 
         let mut unused_agg_trade = Arc::new(tokio::sync::Mutex::<Vec<AggTradeData>>::new(vec![]));
@@ -635,10 +636,29 @@ impl Transformer for ResamplingTransformerWithTiming {
         let notify_clone = notify.clone();
         let mut cursor = 0; // this is the global cursor that records the current id position
                             // let (tx, mut rx) = tokio::sync::mpsc::channel(3);
+                            // claim two atomic variable to keep track of the open and close time
+        let window_left = Arc::new(AtomicU64::new(0));
+        let window_right = Arc::new(AtomicU64::new(0));
+        let l = window_left.clone();
+        let r = window_right.clone();
+
+        // this notify will trigger the timer thread to get out of the sleep
+        let stale_notify = Arc::new(tokio::sync::Notify::new());
+        let stale_notify_clone = stale_notify.clone();
+
+        let done_notify = Arc::new(tokio::sync::Notify::new());
+        let done_notify_clone = done_notify.clone();
         tokio::spawn(async move {
             let mut missing_segments = vec![];
             let mut nr_missing = 0;
-
+            let in_range = |x: u64| -> bool {
+                let left = l.load(Ordering::Relaxed);
+                let right = r.load(Ordering::Relaxed);
+                if left == 0 || right == 0 {
+                    return true;
+                }
+                x >= left && x <= right
+            };
             loop {
                 let agg_trade = if let Some(agg_trade) = unused_agg_trade.lock().await.pop() {
                     // tracing::error!("agg id is {:?}", agg_trade.aggregated_trade_id);
@@ -654,6 +674,17 @@ impl Transformer for ResamplingTransformerWithTiming {
                     let agg_trade: AggTradeData = agg_trade.unwrap();
                     agg_trade
                 };
+
+                if !in_range(agg_trade.trade_time) {
+                    stale_notify.notify_one();
+                    while atomic_lock
+                    .compare_exchange_weak(true, false, Ordering::Relaxed, Ordering::Relaxed)
+                    .is_err() {
+                        tokio::task::yield_now().await;
+                    }
+                    notify.notify_one();
+                    done_notify.notified().await;
+                }
                 // info!("agg_trade: {:?}", agg_trade);
                 let this_data = data.load();
                 let mut copied_data = this_data;
@@ -684,7 +715,8 @@ impl Transformer for ResamplingTransformerWithTiming {
                     .is_ok()
                 {
                     notify.notify_one();
-                    sent_to_downstream.notified().await;
+                    done_notify.notified().await;
+                    tracing::error!("lock released");
                 }
             }
         });
@@ -692,28 +724,48 @@ impl Transformer for ResamplingTransformerWithTiming {
         let d = this_time_gap.to_std().unwrap();
         let interval_duration = d.as_secs();
         // timer thread
+        
         tokio::spawn(async move {
             loop {
-                let (_, next_timestamp) = next_interval(interval_duration as u32);
-
-                let time_point = next_interval_time_point(d).await;
-                // info!("next time point is: {:?}, next timestamp is: {:?}", next_time_point, next_timestamp);
-                // info!("Current time is: {:?}", pipeline_utils::get_current_time());
-                tokio::time::sleep_until(time_point.0).await;
+                let (next_instant, next_timestamp) =
+                    get_next_instant_and_timestamp(interval_duration);
+                let current_left = window_left.load(Ordering::Relaxed);
+                let current_right = window_right.load(Ordering::Relaxed);
+                if current_left == 0 {
+                    window_left.store(next_timestamp - interval_duration * 1000 + 1, Ordering::Relaxed);
+                    window_right.store(next_timestamp - 1, Ordering::Relaxed);
+                } else {
+                    window_left.store(current_left + interval_duration * 1000, Ordering::Relaxed);
+                    window_right.store(current_right + interval_duration * 1000, Ordering::Relaxed);
+                }
+                info!("now timestamp is: {:?}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+                info!(
+                    "Next instant is: {:?}, next timestamp is: {:?}",
+                    next_instant, next_timestamp
+                );
+                tokio::select! {
+                    _ = tokio::time::sleep_until(next_instant) => {
+                        stale_notify_clone.notified().await; // consume the stale notify
+                    }
+                    _ = stale_notify_clone.notified() => {
+                        
+                    }
+                }
                 if should_quit_clone.load(Ordering::Relaxed) {
                     break;
                 }
                 // allow 15ms/ 100 more runs or the fetched data's stamp is greater than the next time point
+                
                 let counter = 200;
-                let duration = tokio::time::Duration::from_millis(100);
-                let (tx, mut rx) = tokio::sync::mpsc::channel(100);
+                let duration = tokio::time::Duration::from_millis(200);
+                let (tx, mut rx) = tokio::sync::mpsc::channel(200);
                 let inner_clone_v2 = inner_clone_v2.clone();
                 let buffered_unused = unused_buffer.clone();
                 let updater_task = tokio::spawn(async move {
+                    let mut ticket = inner_clone_v2.lock().await;
                     for _ in 1..=counter {
-                        let mut ticket = inner_clone_v2.lock().await;
+                        
                         let agg_trade = ticket.input[0].recv().await;
-                        drop(ticket);
                         if agg_trade.is_none() {
                             break;
                         }
@@ -723,15 +775,16 @@ impl Transformer for ResamplingTransformerWithTiming {
                             buffered_unused.lock().await.push(agg_trade);
                             break;
                         } else {
-                            tx.send(agg_trade).await.expect("Failed to send data");
+                            tx.send(agg_trade).await.expect("send failed");
                         }
                     }
                 });
                 // this guratnees that the agg_trade is in current time scope
                 tokio::select! {
                     _ = updater_task => {
+                        
                         let mut temp_data = data_clone_v2.load();
-                        while let Some(agg_trade) = rx.recv().await {
+                        while let Ok(agg_trade) = rx.try_recv() {
                             temp_data.update_from_agg_trade(agg_trade);
                         }
                         temp_data.open_time = next_timestamp - interval_duration * 1000 + 1;
@@ -739,6 +792,7 @@ impl Transformer for ResamplingTransformerWithTiming {
                         data_clone_v2.store(temp_data);
                     }
                     _ = tokio::time::sleep(duration) => {
+                        
                         let mut temp_data = data_clone_v2.load();
                         while let Some(agg_trade) = rx.recv().await {
                             temp_data.update_from_agg_trade(agg_trade);
@@ -748,13 +802,11 @@ impl Transformer for ResamplingTransformerWithTiming {
                         data_clone_v2.store(temp_data);
                     }
                 }
-
                 // these are the final steps
                 while atomic_lock_timer
-                    .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+                    .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
                     .is_err()
                 {}
-                sent_to_downstream_clone.notify_one();
             }
         });
 
@@ -769,6 +821,7 @@ impl Transformer for ResamplingTransformerWithTiming {
                 notify_clone.notified().await;
                 let mut this_data = data_clone.load();
                 data_clone.store(DataSlice::default());
+                done_notify_clone.notify_one();
                 if this_data.number_of_trades > 0 {
                     if last_data.number_of_trades != 0 {
                         this_data.open_price = last_data.open_price;
@@ -797,8 +850,10 @@ impl Transformer for ResamplingTransformerWithTiming {
                         let mut left_bound = 0;
                         while let Some(agg_trade) = last_1000_agg_trade.pop() {
                             if is_first_trade {
-                                left_bound =
-                                    this_period_start(agg_trade.trade_time - interval_duration * 1000, interval_duration as u32);
+                                left_bound = this_period_start(
+                                    agg_trade.trade_time - interval_duration * 1000,
+                                    interval_duration as u32,
+                                );
                                 is_first_trade = false;
                             }
                             if agg_trade.trade_time < left_bound {
@@ -817,6 +872,7 @@ impl Transformer for ResamplingTransformerWithTiming {
                     break;
                 }
                 last_data = this_data;
+                
             }
         });
         Ok(())
