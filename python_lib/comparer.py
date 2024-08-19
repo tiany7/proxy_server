@@ -146,6 +146,11 @@ def main():
             pass
         data_from_binance = kline_queue.get()
         print("binance data " , str(data_from_binance))
+
+        print(data_from_rpc.high," vs ",  float(data_from_binance['h']))
+        print(data_from_rpc.low," vs ",  float(data_from_binance['l']))
+        print(data_from_rpc.open," vs ",  float(data_from_binance['o']))
+        print(data_from_rpc.close," vs ",  float(data_from_binance['c']))
         high_price_diff = abs(data_from_rpc.high - float(data_from_binance['h']))
         low_price_diff = abs(data_from_rpc.low - float(data_from_binance['l']))
         open_price_diff = abs(data_from_rpc.open - float(data_from_binance['o']))

@@ -138,8 +138,8 @@ impl Default for DataSlice {
             number_of_trades: 0,
             taker_buy_base_asset_volume: 0.0,
             taker_buy_quote_asset_volume: 0.0,
-            min_id: 0,
-            max_id: 0,
+            min_id: u64::MAX,
+            max_id: u64::MIN,
             missing_count: 0,
             open_time: 0,
             close_time: 0,
@@ -166,8 +166,8 @@ impl DataSlice {
         self.number_of_trades = 0;
         self.taker_buy_base_asset_volume = 0.0;
         self.taker_buy_quote_asset_volume = 0.0;
-        self.min_id = 0;
-        self.max_id = 0;
+        self.min_id = u64::MAX;
+        self.max_id = u64::MIN;
         self.missing_count = 0;
         self.open_time = 0;
         self.close_time = 0;
@@ -178,10 +178,19 @@ impl DataSlice {
         if self.number_of_trades == 0 {
             // self.open_time = agg_trade.trade_time;
             self.open_price = agg_trade.price;
-            self.min_id = agg_trade.aggregated_trade_id;
+            
+        }
+        if agg_trade.first_break_trade_id < self.min_id {
+            self.min_id = agg_trade.first_break_trade_id;
+            self.open_price = agg_trade.price;
+        }
+
+        if agg_trade.last_break_trade_id > self.max_id {
+            self.max_id = agg_trade.last_break_trade_id;
+            self.close_price = agg_trade.price;
         }
         self.number_of_trades += agg_trade.last_break_trade_id - agg_trade.first_break_trade_id + 1;
-        self.close_price = agg_trade.price;
+        
         // self.close_time = agg_trade.trade_time;
 
         if self.last.is_none() {
@@ -190,13 +199,8 @@ impl DataSlice {
         if self.last.unwrap() < agg_trade.aggregated_trade_id {
             self.last = Some(agg_trade.aggregated_trade_id);
         }
-        if agg_trade.price < self.low_price {
-            self.low_price = agg_trade.price;
-        }
-        if agg_trade.price > self.high_price {
-            self.high_price = agg_trade.price;
-        }
-        self.max_id = self.max_id.max(agg_trade.aggregated_trade_id);
+        self.low_price = self.low_price.min(agg_trade.price);
+        self.high_price = self.high_price.max(agg_trade.price);
         self.volume += agg_trade.quantity;
         self.quote_asset_volume += agg_trade.price * agg_trade.quantity;
         self.taker_buy_base_asset_volume += {
@@ -674,7 +678,7 @@ impl Transformer for ResamplingTransformerWithTiming {
                     let agg_trade: AggTradeData = agg_trade.unwrap();
                     agg_trade
                 };
-
+                
                 if !in_range(agg_trade.trade_time) {
                     stale_notify.notify_one();
                     while atomic_lock
@@ -688,7 +692,6 @@ impl Transformer for ResamplingTransformerWithTiming {
                 // info!("agg_trade: {:?}", agg_trade);
                 let this_data = data.load();
                 let mut copied_data = this_data;
-
                 // update the cursor
                 if cursor == 0 {
                     cursor = agg_trade.aggregated_trade_id;
@@ -820,9 +823,11 @@ impl Transformer for ResamplingTransformerWithTiming {
             loop {
                 notify_clone.notified().await;
                 let mut this_data = data_clone.load();
-                data_clone.store(DataSlice::default());
+                let mut default_slice = DataSlice::default();
+                default_slice.open_price = this_data.close_price;
+                data_clone.store(default_slice);
                 done_notify_clone.notify_one();
-                if this_data.number_of_trades > 0 {
+                if this_data.number_of_trades == 0 {
                     if last_data.number_of_trades != 0 {
                         this_data.open_price = last_data.open_price;
                         this_data.close_price = last_data.close_price;

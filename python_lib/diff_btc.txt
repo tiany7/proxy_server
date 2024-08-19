@@ -1,6 +1,1 @@
-{"high_price_diff": 22.31999999999971, "low_price_diff": 0.0, "open_price_diff": 22.31999999999971, "close_price_diff": 0.0, "volume_diff": 7.016079999996094, "timestamp": 1724029560000}
-{"high_price_diff": 70.77999999999884, "low_price_diff": 74.18000000000029, "open_price_diff": 11.189999999995052, "close_price_diff": 81.97999999999593, "volume_diff": 4.973799150320701e-14, "timestamp": 1724029620000}
-{"high_price_diff": 139.58000000000175, "low_price_diff": 149.65999999999622, "open_price_diff": 70.77999999999884, "close_price_diff": 129.97999999999593, "volume_diff": 7.105427357601002e-15, "timestamp": 1724029680000}
-{"high_price_diff": 128.0, "low_price_diff": 157.34999999999854, "open_price_diff": 118.77999999999884, "close_price_diff": 80.89999999999418, "volume_diff": 3.197442310920451e-14, "timestamp": 1724029740000}
-{"high_price_diff": 69.69999999999709, "low_price_diff": 75.15000000000146, "open_price_diff": 69.70000000000437, "close_price_diff": 3.1899999999950523, "volume_diff": 1.7763568394002505e-14, "timestamp": 1724029800000}
-{"high_price_diff": 2.0, "low_price_diff": 36.299999999995634, "open_price_diff": 7.989999999997963, "close_price_diff": 6.810000000004948, "volume_diff": 3.197442310920451e-14, "timestamp": 1724029860000}
+{"high_price_diff": 0.0, "low_price_diff": 0.0, "open_price_diff": 0.0, "close_price_diff": 0.0, "volume_diff": 3.8191672047105385e-14, "timestamp": 1724043120000}
