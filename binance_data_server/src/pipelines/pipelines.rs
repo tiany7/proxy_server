@@ -741,11 +741,11 @@ impl Transformer for ResamplingTransformerWithTiming {
                     window_left.store(current_left + interval_duration * 1000, Ordering::Relaxed);
                     window_right.store(current_right + interval_duration * 1000, Ordering::Relaxed);
                 }
-                info!("now timestamp is: {:?}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
-                info!(
-                    "Next instant is: {:?}, next timestamp is: {:?}",
-                    next_instant, next_timestamp
-                );
+                // info!("now timestamp is: {:?}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+                // info!(
+                //     "Next instant is: {:?}, next timestamp is: {:?}",
+                //     next_instant, next_timestamp
+                // );
                 tokio::select! {
                     _ = tokio::time::sleep_until(next_instant) => {
                         stale_notify_clone.notified().await; // consume the stale notify
@@ -767,7 +767,6 @@ impl Transformer for ResamplingTransformerWithTiming {
                 let updater_task = tokio::spawn(async move {
                     let mut ticket = inner_clone_v2.lock().await;
                     for _ in 1..=counter {
-                        
                         let agg_trade = ticket.input[0].recv().await;
                         if agg_trade.is_none() {
                             break;

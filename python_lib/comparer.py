@@ -78,13 +78,16 @@ queue_from_binance = asyncio.Queue()
 
 last_kline_data = None
 
+last_grouped_kline_data = {}
+
 import threading
 import queue
 kline_queue = queue.Queue()
+group_kline_queue = {}
 def on_message(ws, message):
     global last_kline_data
     kline_data = json.loads(message)
-    # print_kline(data)
+    symbol = kline_data['s']
 
     if last_kline_data is not None and kline_data['k']['t'] != last_kline_data['k']['t']:
         kline_queue.put(last_kline_data['k'])
@@ -92,8 +95,20 @@ def on_message(ws, message):
     else:
         last_kline_data = kline_data
 
+def on_multiple_message(ws, message):
+    global last_grouped_kline_data
+    kline_data = json.loads(message)['data']
+    # print("kline data ", kline_data)
+    symbol = str(kline_data['s']).lower()
+    if last_grouped_kline_data.get(symbol) is None:
+        print("init queue for ", symbol)
+        group_kline_queue[symbol] = queue.Queue()
+    elif last_grouped_kline_data[symbol]['k']['t'] != kline_data['k']['t']:
+        group_kline_queue[symbol].put(last_grouped_kline_data[symbol]['k'])
+    last_grouped_kline_data[symbol] = kline_data
+
 def on_error(ws, error):
-    print(error)
+    pass
 
 def on_close(ws):
     print("### closed ###")
@@ -107,6 +122,15 @@ def binance_kline_websocket(symbol):
     ws = websocket.WebSocketApp(socket_url, on_message=on_message, on_error=on_error, on_close=on_close)  
 
     ws.run_forever()  
+
+def binance_combined_kline_websocket(symbols):
+    # Create combined stream URL for multiple symbols
+    streams = "/".join([f"{symbol}@kline_1m" for symbol in symbols])
+    socket_url = f"wss://stream.binance.com:9443/stream?streams={streams}"
+    print("connecting to ", socket_url)
+    # websocket.enableTrace(True)
+    ws = websocket.WebSocketApp(socket_url, on_message=on_multiple_message, on_error=on_error, on_close=on_close)
+    ws.run_forever()
 
 def print_kline(kline_data):
     kline = kline_data['k']  # 'k' 字段包含K线的具体数据
@@ -129,22 +153,26 @@ def main():
     interval = "1m"
     # create a task for the websocket
     # task_rpc = asyncio.create_task(generate_kline_from_rpc(queue_from_rpc))
-    websocket_thread = threading.Thread(target=binance_kline_websocket, args=(symbol,))
+    symbols = ['btcusdt' , 'ethusdt', 'bnbusdt', 'adausdt', 'dogeusdt', 'solusdt']
+    websocket_thread = threading.Thread(target=binance_combined_kline_websocket, args=(symbols,))
+    # websocket_thread = threading.Thread(target=binance_kline_websocket, args=(symbol,))
     websocket_thread.start()
     
     # execute the task
     # start compare the data
     global last_kline_data
     client = TradeClient(host = "localhost", port=10000)
-    for data in client.get_market_data_by_batch(["btcusdt"], time_interval=60):
+    for data in client.get_market_data_by_batch(symbols, time_interval=60):
+        outstanding = False
         data_from_rpc = data.data
         print("rpc data " + str(data_from_rpc))
         print("getting binanance data")
+        symbol = data_from_rpc.symbol.lower()
         data_from_binance = None
         # while the queue is empty, wait
-        while kline_queue.empty():
+        while group_kline_queue.get(symbol) is None or group_kline_queue[symbol].empty():
             pass
-        data_from_binance = kline_queue.get()
+        data_from_binance = group_kline_queue[symbol].get()
         print("binance data " , str(data_from_binance))
 
         print(data_from_rpc.high," vs ",  float(data_from_binance['h']))
@@ -156,6 +184,9 @@ def main():
         open_price_diff = abs(data_from_rpc.open - float(data_from_binance['o']))
         close_price_diff = abs(data_from_rpc.close- float(data_from_binance['c']))
         volume_diff = abs(data_from_rpc.volume - float(data_from_binance['v']))
+        eps = 1e-6
+        if high_price_diff > eps or low_price_diff > eps or open_price_diff > eps or close_price_diff > eps or volume_diff > eps:
+            is_outstanding = True
         # dump it to disk with current timestamp
         # maintain 1000 entries
         diff = {}
@@ -169,7 +200,10 @@ def main():
         diff_json = json.dumps(diff)
         # maintain the latest 1000 entries
         print(data_from_rpc.open_time, data_from_binance['t'])
-        maintain_latest_1000_entries("diff_btc.txt", [diff_json + "\n"])
+        if outstanding:
+            maintain_latest_1000_entries(f"diff_{data_from_rpc.symbol}_outstanding.txt", [diff_json + "\n"])
+        else:
+            maintain_latest_1000_entries(f"diff_{data_from_rpc.symbol}.txt", [diff_json + "\n"])
         
         
 

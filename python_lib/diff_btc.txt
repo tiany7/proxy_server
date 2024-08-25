@@ -1,1 +1,0 @@
-{"high_price_diff": 0.0, "low_price_diff": 0.0, "open_price_diff": 0.0, "close_price_diff": 0.0, "volume_diff": 3.8191672047105385e-14, "timestamp": 1724043120000}

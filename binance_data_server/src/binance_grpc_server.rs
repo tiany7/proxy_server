@@ -409,7 +409,7 @@ fn main() {
         let metrics_port = config_clone.metrics_server_port;
         let market = TradeService {
             config: Arc::new(Mutex::new(config.clone())),
-            binance_mgr: Arc::new(Mutex::new(BinanceDataManager::new(config).await)),
+            binance_mgr: BinanceDataManager::new_thread_safe(config),//Arc::new(Mutex::new(BinanceDataManager::new(config.clone()))),
             connections: dashmap::DashMap::new(),
         };
         let server_fut = tokio::spawn(async move {

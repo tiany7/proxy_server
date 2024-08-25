@@ -10,7 +10,7 @@ use binance::rest_model::AggTrade;
 use binance::websockets::{agg_trade_stream, trade_stream, WebSockets};
 use binance::ws_model::WebsocketEvent;
 use metrics_server::MISSING_VALUE_BY_CHANNEL;
-use tokio::task::JoinHandle;
+use tokio::{task::JoinHandle, sync::Mutex};
 
 use crate::AggTradeData;
 
@@ -38,6 +38,10 @@ fn default_recovery_batch_size() -> u16 {
     100
 }
 
+fn default_restart_interval() -> u64 {
+    60
+}
+
 #[derive(Debug, serde::Deserialize, Clone)]
 pub struct BinanceServerConfig {
     pub port: usize,
@@ -46,6 +50,7 @@ pub struct BinanceServerConfig {
     pub max_threads: usize,
     pub metrics_server_port: usize,
     pub recover_batch_size: u16,
+    pub restart_interval: u64,
 }
 
 impl Default for BinanceServerConfig {
@@ -57,6 +62,7 @@ impl Default for BinanceServerConfig {
             max_threads: default_max_threads(),
             metrics_server_port: default_metrics_server_port(),
             recover_batch_size: default_recovery_batch_size(),
+            restart_interval: default_restart_interval(),
         }
     }
 }
@@ -93,7 +99,7 @@ impl Debug for BinanceDataManager {
 }
 
 impl BinanceDataManager {
-    pub async fn new(config: BinanceServerConfig) -> Self {
+    pub fn new(config: BinanceServerConfig) -> Self {
         let conf = Config::default().set_rest_api_endpoint(DATA_REST_ENDPOINT);
         let market_client = Binance::new_with_env(&conf);
         BinanceDataManager {
@@ -105,9 +111,26 @@ impl BinanceDataManager {
         }
     }
 
+    pub fn new_thread_safe(config: BinanceServerConfig) -> Arc<Mutex<Self>> {
+        let restart_interval = config.restart_interval;
+        let binance_data_manager = Arc::new(Mutex::new(BinanceDataManager::new(config)));
+        let binance_data_manager_clone = binance_data_manager.clone();
+        tokio::spawn(async move {
+            // use tokio interval to restart the connection
+            let d = tokio::time::Duration::from_secs(restart_interval * 60);
+            loop {
+                tokio::time::sleep(d).await;
+                tracing::info!("graceful restart");
+                binance_data_manager.lock().await.graceful_restart().await;
+            }
+        });
+        binance_data_manager_clone
+    }
+
     pub fn get_shared_market_client(&self) -> Market {
         self.market_client.clone()
     }
+
 
     // will register the symbol in the dict so that we can use it later
     // precondition: the symbol is not registered, which is guaranteed by the filters
@@ -372,9 +395,9 @@ impl BinanceDataManager {
 
         // 3.replace the old connection with the new connection
         let mut join_handles = self.binance_connections.lock().await;
-        join_handles.drain(..).for_each(|handle| {
-            handle.abort();
-        });
+        
+        let deprecated_handles = (*join_handles).drain(..);
+        let mut join_handles = self.binance_connections.lock().await;
 
         // 2.spawn new connection
         let mut batch_connections = self.batch_connections.lock().await;
@@ -436,6 +459,9 @@ impl BinanceDataManager {
             });
             join_handles.push(handle);
         }
+        deprecated_handles.for_each(|handle| {
+            handle.abort();
+        });
     }
 
     pub async fn get_most_recent_agg_trades(
