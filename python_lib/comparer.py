@@ -148,12 +148,24 @@ def print_kline(kline_data):
     print(f"成交量: {kline['v']}")
     print("----------------------")
 
+import datetime
+def convert_time_to_pst_readable(unix_timestamp):
+    utc_time = datetime.utcfromtimestamp(unix_timestamp)
+    utc_time = utc_time.replace(tzinfo=pytz.utc)
+    pacific_time = utc_time.astimezone(pytz.timezone('America/Los_Angeles'))
+    return pacific_time.strftime('%Y-%m-%d %H:%M:%S')
+
+
+
+
 def main():
     symbol = "btcusdt"
     interval = "1m"
     # create a task for the websocket
     # task_rpc = asyncio.create_task(generate_kline_from_rpc(queue_from_rpc))
     symbols = ['btcusdt' , 'ethusdt', 'bnbusdt', 'adausdt', 'dogeusdt', 'solusdt']
+    batch_symbols = ['1000LUNCUSDT', '1000SHIBUSDT', '1000XECUSDT', '1INCHUSDT', 'AAVEUSDT', 'ADAUSDT', 'ALGOUSDT', 'ALICEUSDT', 'ALPHAUSDT', 'ANKRUSDT', 'APEUSDT', 'API3USDT', 'ARPAUSDT', 'ATAUSDT', 'ATOMUSDT', 'AVAXUSDT', 'AXSUSDT', 'BAKEUSDT', 'BALUSDT', 'BATUSDT', 'BCHUSDT', 'BELUSDT', 'BLZUSDT', 'BNBUSDT', 'BTCUSDT', 'C98USDT', 'CELOUSDT', 'CELRUSDT', 'CHRUSDT', 'CHZUSDT']
+    batch_symbol_lower = [symbol.lower() for symbol in batch_symbols]
     websocket_thread = threading.Thread(target=binance_combined_kline_websocket, args=(symbols,))
     # websocket_thread = threading.Thread(target=binance_kline_websocket, args=(symbol,))
     websocket_thread.start()
@@ -179,14 +191,19 @@ def main():
         print(data_from_rpc.low," vs ",  float(data_from_binance['l']))
         print(data_from_rpc.open," vs ",  float(data_from_binance['o']))
         print(data_from_rpc.close," vs ",  float(data_from_binance['c']))
-        high_price_diff = abs(data_from_rpc.high - float(data_from_binance['h']))
-        low_price_diff = abs(data_from_rpc.low - float(data_from_binance['l']))
-        open_price_diff = abs(data_from_rpc.open - float(data_from_binance['o']))
-        close_price_diff = abs(data_from_rpc.close- float(data_from_binance['c']))
-        volume_diff = abs(data_from_rpc.volume - float(data_from_binance['v']))
+        high_price_diff = data_from_rpc.high - float(data_from_binance['h'])
+        low_price_diff = data_from_rpc.low - float(data_from_binance['l'])
+        open_price_diff = data_from_rpc.open - float(data_from_binance['o'])
+        close_price_diff = data_from_rpc.close- float(data_from_binance['c'])
+        volume_diff = data_from_rpc.volume - float(data_from_binance['v'])
+        high_price_diff_abs = abs(high_price_diff)
+        low_price_diff_abs = abs(low_price_diff)
+        open_price_diff_abs = abs(open_price_diff)
+        close_price_diff_abs = abs(close_price_diff)
+        volume_diff_abs = abs(volume_diff)
         eps = 1e-6
-        if high_price_diff > eps or low_price_diff > eps or open_price_diff > eps or close_price_diff > eps or volume_diff > eps:
-            is_outstanding = True
+        if high_price_diff_abs > eps or low_price_diff_abs > eps or open_price_diff_abs > eps or close_price_diff_abs > eps or volume_diff_abs > eps:
+            outstanding = True
         # dump it to disk with current timestamp
         # maintain 1000 entries
         diff = {}
@@ -195,7 +212,7 @@ def main():
         diff['open_price_diff'] = open_price_diff
         diff['close_price_diff'] = close_price_diff
         diff['volume_diff'] = volume_diff
-        diff['timestamp'] = data_from_rpc.open_time
+        diff['timestamp'] = convert_time_to_pst_readable(data_from_rpc.open_time)
         # make it to json
         diff_json = json.dumps(diff)
         # maintain the latest 1000 entries

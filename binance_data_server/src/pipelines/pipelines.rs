@@ -759,9 +759,9 @@ impl Transformer for ResamplingTransformerWithTiming {
                 }
                 // allow 15ms/ 100 more runs or the fetched data's stamp is greater than the next time point
                 
-                let counter = 200;
-                let duration = tokio::time::Duration::from_millis(200);
-                let (tx, mut rx) = tokio::sync::mpsc::channel(200);
+                let counter = 500;
+                let duration = tokio::time::Duration::from_millis(300);
+                let (tx, mut rx) = tokio::sync::mpsc::channel(500);
                 let inner_clone_v2 = inner_clone_v2.clone();
                 let buffered_unused = unused_buffer.clone();
                 let updater_task = tokio::spawn(async move {
@@ -823,15 +823,14 @@ impl Transformer for ResamplingTransformerWithTiming {
                 notify_clone.notified().await;
                 let mut this_data = data_clone.load();
                 let mut default_slice = DataSlice::default();
-                default_slice.open_price = this_data.close_price;
                 data_clone.store(default_slice);
                 done_notify_clone.notify_one();
                 if this_data.number_of_trades == 0 {
                     if last_data.number_of_trades != 0 {
-                        this_data.open_price = last_data.open_price;
+                        this_data.open_price = last_data.close_price;
                         this_data.close_price = last_data.close_price;
-                        this_data.high_price = last_data.high_price;
-                        this_data.low_price = last_data.low_price;
+                        this_data.high_price = last_data.close_price;
+                        this_data.low_price = last_data.close_price;
                     } else {
                         let mut last_1000_agg_trade = market_client
                             .get_agg_trades(name_clone.clone(), None, None, None, 1000)
