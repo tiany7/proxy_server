@@ -80,6 +80,8 @@ message BarData {
     uint64 max_id = 13;
     uint64 min_id = 14;
     string symbol = 15;
+    bool is_counter_buffer_triggered = 16;
+    bool is_time_buffer_triggered = 17;
 }
 
 message PingRequest{

@@ -124,6 +124,8 @@ pub struct DataSlice {
     close_time: u64,
     last: Option<u64>,
     symbol: &'static str,
+    is_counter_buffer_triggered: bool,
+    is_time_buffer_triggered: bool,
 }
 
 impl Default for DataSlice {
@@ -144,6 +146,8 @@ impl Default for DataSlice {
             open_time: 0,
             close_time: 0,
             last: None,
+            is_counter_buffer_triggered: false,
+            is_time_buffer_triggered: false,
             symbol: "",
         }
     }
@@ -236,6 +240,8 @@ impl DataSlice {
             open_time: self.open_time,
             close_time: self.close_time,
             symbol: self.symbol.to_string(),
+            is_counter_buffer_triggered: self.is_counter_buffer_triggered,
+            is_time_buffer_triggered: self.is_time_buffer_triggered,
         }
     }
 
@@ -256,6 +262,8 @@ impl DataSlice {
             open_time: self.open_time,
             close_time: self.close_time,
             symbol,
+            is_counter_buffer_triggered: self.is_counter_buffer_triggered,
+            is_time_buffer_triggered: self.is_time_buffer_triggered,
         }
     }
 }
@@ -746,12 +754,13 @@ impl Transformer for ResamplingTransformerWithTiming {
                 //     "Next instant is: {:?}, next timestamp is: {:?}",
                 //     next_instant, next_timestamp
                 // );
+                let mut is_stale_data = false;
                 tokio::select! {
                     _ = tokio::time::sleep_until(next_instant) => {
                         stale_notify_clone.notified().await; // consume the stale notify
                     }
                     _ = stale_notify_clone.notified() => {
-                        
+                        is_stale_data = true;
                     }
                 }
                 if should_quit_clone.load(Ordering::Relaxed) {
@@ -765,6 +774,9 @@ impl Transformer for ResamplingTransformerWithTiming {
                 let inner_clone_v2 = inner_clone_v2.clone();
                 let buffered_unused = unused_buffer.clone();
                 let updater_task = tokio::spawn(async move {
+                    if is_stale_data {
+                        return;
+                    }
                     let mut ticket = inner_clone_v2.lock().await;
                     for _ in 1..=counter {
                         let agg_trade = ticket.input[0].recv().await;
@@ -791,6 +803,7 @@ impl Transformer for ResamplingTransformerWithTiming {
                         }
                         temp_data.open_time = next_timestamp - interval_duration * 1000 + 1;
                         temp_data.close_time = next_timestamp;
+                        temp_data.is_counter_buffer_triggered = true;
                         data_clone_v2.store(temp_data);
                     }
                     _ = tokio::time::sleep(duration) => {
@@ -801,6 +814,7 @@ impl Transformer for ResamplingTransformerWithTiming {
                         }
                         temp_data.open_time = next_timestamp - interval_duration * 1000 + 1;
                         temp_data.close_time = next_timestamp;
+                        temp_data.is_time_buffer_triggered = true;
                         data_clone_v2.store(temp_data);
                     }
                 }

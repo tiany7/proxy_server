@@ -149,11 +149,12 @@ def print_kline(kline_data):
     print("----------------------")
 
 import datetime
-def convert_time_to_pst_readable(unix_timestamp):
-    utc_time = datetime.utcfromtimestamp(unix_timestamp)
-    utc_time = utc_time.replace(tzinfo=pytz.utc)
-    pacific_time = utc_time.astimezone(pytz.timezone('America/Los_Angeles'))
-    return pacific_time.strftime('%Y-%m-%d %H:%M:%S')
+import pytz
+def convert_timestamp_to_pst(unix_timestamp_ms):
+    timestamp_sec = unix_timestamp_ms / 1000.0
+    utc_time = datetime.datetime.fromtimestamp(timestamp_sec, pytz.utc)
+    west_coast_time = utc_time.astimezone(pytz.timezone('America/Los_Angeles'))
+    return west_coast_time
 
 
 
@@ -212,7 +213,7 @@ def main():
         diff['open_price_diff'] = open_price_diff
         diff['close_price_diff'] = close_price_diff
         diff['volume_diff'] = volume_diff
-        diff['timestamp'] = convert_time_to_pst_readable(data_from_rpc.open_time)
+        diff['timestamp'] = str(convert_timestamp_to_pst(data_from_rpc.open_time))
         # make it to json
         diff_json = json.dumps(diff)
         # maintain the latest 1000 entries
