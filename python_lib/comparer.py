@@ -175,6 +175,8 @@ def main():
     # start compare the data
     global last_kline_data
     client = TradeClient(host = "localhost", port=10000)
+    need_to_track_first_agg_trade_id = False
+    last_agg_trade_id = 0
     for data in client.get_market_data_by_batch(symbols, time_interval=60):
         outstanding = False
         data_from_rpc = data.data
@@ -215,9 +217,15 @@ def main():
         diff['volume_diff'] = volume_diff
         diff['timestamp'] = str(convert_timestamp_to_pst(data_from_rpc.open_time))
         # make it to json
+        diff["first_agg_trade_id"] = data_from_rpc.first_agg_trade_id
+        diff["last_agg_trade_id"] = data_from_rpc.last_agg_trade_id
         diff_json = json.dumps(diff)
         # maintain the latest 1000 entries
         print(data_from_rpc.open_time, data_from_binance['t'])
+        if need_to_track_first_agg_trade_id:
+            output = f"previous last_agg_trade_id {last_agg_trade_id} current first_agg_trade_id {data_from_rpc.first_agg_trade_id}"
+            maintain_latest_1000_entries(f"diff_{data_from_rpc.symbol}_outstanding_trade_id.txt", [output + "\n"])
+
         if outstanding:
             maintain_latest_1000_entries(f"diff_{data_from_rpc.symbol}_outstanding.txt", [diff_json + "\n"])
         else:

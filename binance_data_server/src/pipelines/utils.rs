@@ -1,4 +1,5 @@
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Ok, Result};
 use chrono::{DateTime, Timelike};
@@ -11,6 +12,41 @@ use tokio::time::{self, Duration, Instant};
 pub struct Segment {
     pub start: u64,
     pub end: u64,
+}
+
+#[derive(Debug)]
+pub struct AtomicLock {
+    lock: AtomicBool,
+}
+
+impl AtomicLock {
+    pub fn new() -> Self {
+        AtomicLock {
+            lock: AtomicBool::new(false),
+        }
+    }
+
+    pub fn test(&self) -> bool {
+        self.lock.load(Ordering::SeqCst)
+    }
+
+    pub fn unlock(&self) {
+        self.lock.store(false, Ordering::SeqCst);
+    }
+
+    pub fn lock(&self) {
+        self.lock.store(true, Ordering::SeqCst);
+    }
+
+    pub async fn lock_and_wait_for_unlock(&self) {
+        self.lock();
+        // wait for someone releases the lock
+        while self.lock.load(Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+    }
+
+    
 }
 
 impl Segment {
@@ -128,7 +164,7 @@ pub fn get_next_instant_and_timestamp(seconds: u64) -> (Instant, u64) {
     let milliseconds = seconds as u128 * 1000;
     let next_timestamp = (timestamp_millis / milliseconds + 1) * milliseconds;
     let diff = next_timestamp - timestamp_millis;
-    let instant = Instant::now() + Duration::from_millis(diff as u64) - Duration::from_millis(60);
+    let instant = Instant::now() + Duration::from_millis(diff as u64) + Duration::from_millis(5);  
     (instant, next_timestamp as u64 - 1)
 }
 
@@ -143,6 +179,35 @@ pub fn this_period_start(timestamp: u64, seconds: u32) -> u64 {
 
 pub fn get_current_time() -> DateTime<chrono::Local> {
     chrono::Local::now()
+}
+
+pub struct CleanupTask<F>
+where
+    F: Fn() + Send + 'static,
+{
+    cleanup_action: Option<F>,
+}
+
+impl<F> CleanupTask<F>
+where
+    F: Fn() + Send + 'static,
+{
+    fn new(action: F) -> Self {
+        CleanupTask {
+            cleanup_action: Some(action),
+        }
+    }
+}
+
+impl<F> Drop for CleanupTask<F>
+where
+    F: Fn() + Send + 'static,
+{
+    fn drop(&mut self) {
+        if let Some(cleanup) = self.cleanup_action.take() {
+            cleanup();
+        }
+    }
 }
 
 #[cfg(test)]

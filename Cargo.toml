@@ -73,3 +73,5 @@ path = "./metrics_server/src/metrics.rs"
 name = "example"
 path = "./binance_data_server/src/main.rs"
 
+[dependencies.redis]
+version = "*"

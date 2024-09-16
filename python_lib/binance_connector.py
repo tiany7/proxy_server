@@ -78,7 +78,7 @@ if __name__ == '__main__':
             file.write("")
     file_for_each_symbol = {}
     # register_response = client.register_symbols(["btcusdt", "ethusdt", "bnbusdt"])
-    for data in client.get_market_data_by_batch(symbols, time_interval=3):
+    for data in client.get_market_data_by_batch(symbols, time_interval=60):
             # if you want to convert to pandas dataframe
             # df = trade.to_pandas()
             print(data)

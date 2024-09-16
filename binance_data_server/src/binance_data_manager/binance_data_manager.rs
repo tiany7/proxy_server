@@ -10,7 +10,7 @@ use binance::rest_model::AggTrade;
 use binance::websockets::{agg_trade_stream, trade_stream, WebSockets};
 use binance::ws_model::WebsocketEvent;
 use metrics_server::MISSING_VALUE_BY_CHANNEL;
-use tokio::{task::JoinHandle, sync::Mutex};
+use tokio::{sync::Mutex, task::JoinHandle};
 
 use crate::AggTradeData;
 
@@ -130,7 +130,6 @@ impl BinanceDataManager {
     pub fn get_shared_market_client(&self) -> Market {
         self.market_client.clone()
     }
-
 
     // will register the symbol in the dict so that we can use it later
     // precondition: the symbol is not registered, which is guaranteed by the filters
@@ -395,7 +394,7 @@ impl BinanceDataManager {
 
         // 3.replace the old connection with the new connection
         let mut join_handles = self.binance_connections.lock().await;
-        
+
         let deprecated_handles = (*join_handles).drain(..);
         let mut join_handles = self.binance_connections.lock().await;
 
