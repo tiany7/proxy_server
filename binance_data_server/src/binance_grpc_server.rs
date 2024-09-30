@@ -22,6 +22,9 @@ use pipelines::pipelines::ResamplingTransformerWithTiming;
 use tokio::sync::{mpsc, Mutex};
 use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
 use tonic::{transport::Server, Request, Response, Status};
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
+use tracing_subscriber::fmt::writer::BoxMakeWriter;
+use tracing_subscriber::fmt::writer::MakeWriterExt;
 use tracing_subscriber::layer::SubscriberExt;
 
 use crate::binance_data_manager::binance_data_manager::BinanceDataManager;
@@ -355,8 +358,9 @@ impl Trade for TradeService {
             });
             tokio::spawn(async move {
                 while let Some(data) = resample_rx.recv().await {
-                    let response = GetMarketDataResponse { data: Some(data) };
-                    tracing::info!("sending response {:?}", response);
+                    let response_data = data.data.expect("data must not be null");
+                    let response = GetMarketDataResponse { data: Some(response_data) };
+                    tracing::error!("missing data {:?}", data.missing_data);
                     let _ = tx.send(Ok(response)).await;
                 }
             });
@@ -380,8 +384,18 @@ async fn start_server(service_inner: TradeService, port: usize) -> anyhow::Resul
 }
 
 fn main() {
-    let subscriber =
-        tracing_subscriber::FmtSubscriber::new().with(tracing_subscriber::fmt::layer().pretty());
+    let file_appender = tracing_appender::rolling::hourly(
+        "/tmp/binance_data_server.log",
+        "binance_data_server.log",
+    );
+    let subscriber = tracing_subscriber::FmtSubscriber::builder()
+        .with_max_level(tracing::Level::ERROR)
+        .with_writer(file_appender)
+        .with_line_number(true)
+        .with_file(true)
+        .finish();
+    // let another_subscriber =
+    //     tracing_subscriber::FmtSubscriber::new().with(tracing_subscriber::fmt::layer().pretty());
     // use that subscriber to process traces emitted after this point
     tracing::subscriber::set_global_default(subscriber).expect("logger cannot be set");
     let working_dir = std::env::current_dir()

@@ -1,0 +1,1 @@
+{"high_price_diff": 0.0, "low_price_diff": 0.0, "open_price_diff": 0.0, "close_price_diff": 0.0, "volume_diff": 1.0913936421275139e-11, "timestamp": "2024-09-22 18:11:00-07:00"}

@@ -362,80 +362,70 @@ def get_future_klines(symbols, start_time_ms, end_time_ms, interval='1m', limit=
 
     return all_klines
 
+def find_time_windows_with_trade_size(symbol, start_time_ms, end_time_ms, desired_trade_size, interval_ms=60000):
+    base_url = 'https://api.binance.com/api/v3/aggTrades'
+    found_windows = []
+
+    current_start_time = start_time_ms
+    all_agg_trades = []
+    while current_start_time < end_time_ms:
+        current_end_time = current_start_time + interval_ms
+        if current_end_time > end_time_ms:
+            current_end_time = end_time_ms
+
+        params = {
+            'symbol': symbol.upper(),
+            'startTime': int(current_start_time),
+            'endTime': int(current_end_time),
+            'limit': 1000  # 最大值为1000
+        }
+
+        try:
+            response = requests.get(base_url, params=params)
+            data = response.json()
+        except Exception as e:
+            print(f"请求 {symbol} 数据时发生异常: {e}")
+            break
+
+        if response.status_code != 200:
+            print(f"请求 {symbol} 数据时出错: {data}")
+            break
+
+        if not data:
+            # 如果没有数据，移动时间窗口
+            current_start_time += interval_ms
+            continue
+
+        for each_data in data:
+            first_trade_id = each_data['f']
+            last_trade_id = each_data['l']
+            if last_trade_id - first_trade_id + 1 == desired_trade_size:
+                found_windows.append(each_data)
+                volume = 0
+                volume = each_data['q']
+                each_data['volume'] = volume
+        # name the fields
+        new_data = data
+        all_agg_trades.extend(new_data)
+
+        # 移动时间窗口
+        current_start_time += interval_ms
+
+        # 遵守 API 速率限制
+        time.sleep(0.2)
+
+    return found_windows, all_agg_trades
+
+
 def main():
-    symbol = "btcusdt"
-    interval = "1m"
-    # create a task for the websocket
-    # task_rpc = asyncio.create_task(generate_kline_from_rpc(queue_from_rpc))
-    symbols = ['btcusdt' , 'ethusdt', 'bnbusdt', 'adausdt', 'dogeusdt', 'solusdt']
-    get_future_klines(symbols, 1727053320000, 1727053379999)
-    batch_symbols = ['1000LUNCUSDT', '1000SHIBUSDT', '1000XECUSDT', '1INCHUSDT', 'AAVEUSDT', 'ADAUSDT', 'ALGOUSDT', 'ALICEUSDT', 'ALPHAUSDT', 'ANKRUSDT', 'APEUSDT', 'API3USDT', 'ARPAUSDT', 'ATAUSDT', 'ATOMUSDT', 'AVAXUSDT', 'AXSUSDT', 'BAKEUSDT', 'BALUSDT', 'BATUSDT', 'BCHUSDT', 'BELUSDT', 'BLZUSDT', 'BNBUSDT', 'BTCUSDT', 'C98USDT', 'CELOUSDT', 'CELRUSDT', 'CHRUSDT', 'CHZUSDT']
-    batch_symbol_lower = [symbol.lower() for symbol in batch_symbols]
-    # websocket_thread = threading.Thread(target=binance_combined_kline_websocket, args=(symbols,))
-    # # websocket_thread = threading.Thread(target=binance_kline_websocket, args=(symbol,))
-    # websocket_thread.start()
-    
-    # execute the task
-    # start compare the data
-    global last_kline_data
-    client = TradeClient(host = "localhost", port=10000)
-    need_to_track_first_agg_trade_id = False
-    last_agg_trade_id = 0
-    for data in client.get_market_data_by_batch(symbols, time_interval=60):
-        outstanding = False
-        data_from_rpc = data.data
-        print("rpc data " + str(data_from_rpc))
-        if historical_bar_from_rpc.get(data_from_rpc.symbol) is None:
-            historical_bar_from_rpc[data_from_rpc.symbol] = []
-        historical_bar_from_rpc[data_from_rpc.symbol].append(data_from_rpc)
-        compare_historical_data()
-        # while the queue is empty, wait
-        # while group_kline_queue.get(symbol) is None or group_kline_queue[symbol].empty():
-        #     pass
-        # data_from_binance = group_kline_queue[symbol].get()
-        # print("binance data " , str(data_from_binance))
-
-        # print(data_from_rpc.high," vs ",  float(data_from_binance['h']))
-        # print(data_from_rpc.low," vs ",  float(data_from_binance['l']))
-        # print(data_from_rpc.open," vs ",  float(data_from_binance['o']))
-        # print(data_from_rpc.close," vs ",  float(data_from_binance['c']))
-        # high_price_diff = data_from_rpc.high - float(data_from_binance['h'])
-        # low_price_diff = data_from_rpc.low - float(data_from_binance['l'])
-        # open_price_diff = data_from_rpc.open - float(data_from_binance['o'])
-        # close_price_diff = data_from_rpc.close- float(data_from_binance['c'])
-        # volume_diff = data_from_rpc.volume - float(data_from_binance['v'])
-        # high_price_diff_abs = abs(high_price_diff)
-        # low_price_diff_abs = abs(low_price_diff)
-        # open_price_diff_abs = abs(open_price_diff)
-        # close_price_diff_abs = abs(close_price_diff)
-        # volume_diff_abs = abs(volume_diff)
-        # eps = 1e-6
-        # if high_price_diff_abs > eps or low_price_diff_abs > eps or open_price_diff_abs > eps or close_price_diff_abs > eps or volume_diff_abs > eps:
-        #     outstanding = True
-        # # dump it to disk with current timestamp
-        # # maintain 1000 entries
-        # diff = {}
-        # diff['high_price_diff'] = high_price_diff
-        # diff['low_price_diff'] = low_price_diff
-        # diff['open_price_diff'] = open_price_diff
-        # diff['close_price_diff'] = close_price_diff
-        # diff['volume_diff'] = volume_diff
-        # diff['timestamp'] = str(convert_timestamp_to_pst(data_from_rpc.open_time))
-        # # make it to json
-        # diff["first_agg_trade_id"] = data_from_rpc.first_agg_trade_id
-        # diff["last_agg_trade_id"] = data_from_rpc.last_agg_trade_id
-        # diff_json = json.dumps(diff)
-        # # maintain the latest 1000 entries
-        # print(data_from_rpc.open_time, data_from_binance['t'])
-        # if need_to_track_first_agg_trade_id:
-        #     output = f"previous last_agg_trade_id {last_agg_trade_id} current first_agg_trade_id {data_from_rpc.first_agg_trade_id}"
-        #     maintain_latest_1000_entries(f"diff_{data_from_rpc.symbol}_outstanding_trade_id.txt", [output + "\n"])
-
-        # if outstanding:
-        #     maintain_latest_1000_entries(f"diff_{data_from_rpc.symbol}_outstanding.txt", [diff_json + "\n"])
-        # else:
-        #     maintain_latest_1000_entries(f"diff_{data_from_rpc.symbol}.txt", [diff_json + "\n"])
-        
+    found_window, all_trade = find_time_windows_with_trade_size('ethusdt', 1727649960000, 1727649960000 + 60000 - 1, 681)
+    print("found window ")
+    for trade in found_window:
+        print(trade)
+    print("all trade ", len(all_trade))
+    # last 6 records
+    for trade in all_trade[-20:]:
+        print(trade, "with volume = ", trade['q'])
         
 
 

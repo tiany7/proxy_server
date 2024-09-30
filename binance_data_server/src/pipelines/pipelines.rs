@@ -19,12 +19,13 @@ use tokio::sync::{mpsc, Mutex};
 use tokio_schedule::Job;
 use tracing::{error, info};
 use trade::AggTradeData;
-use trade::BarData;
 use trade::Column;
+use trade::{BarData, BarDataWithLogExtra};
 
 use super::utils as pipeline_utils;
 use pipeline_utils::{
-    get_next_instant_and_timestamp, next_interval, next_interval_time_point, this_period_start, AtomicLock,CleanupTask
+    get_next_instant_and_timestamp, instant_from_timestamp, next_interval, this_period_start,
+    AtomicLock, CleanupTask,
 };
 
 #[derive(Debug, Clone)]
@@ -184,9 +185,9 @@ impl DataSlice {
 
     pub fn update_from_agg_trade(&mut self, agg_trade: AggTradeData) {
         if self.first_agg_trade_id == 0 {
-            self.first_agg_trade_id = agg_trade.aggregated_trade_id;
+            self.first_agg_trade_id = agg_trade.trade_time;
         }
-        self.last_agg_trade_id = agg_trade.aggregated_trade_id.max(self.last_agg_trade_id);
+        self.last_agg_trade_id = agg_trade.trade_time.max(self.last_agg_trade_id);
         if self.number_of_trades == 0 {
             // self.open_time = agg_trade.trade_time;
             self.open_price = agg_trade.price;
@@ -314,7 +315,7 @@ pub struct CompressionTransformer {
 
 pub struct ResamplingTransformerWithTiming {
     inner: Arc<Mutex<ResamplingTransformerInnerV2>>,
-    output: Vec<mpsc::Sender<BarData>>,
+    output: Vec<mpsc::Sender<BarDataWithLogExtra>>,
     name: String,
     market_client: binance::market::Market,
 }
@@ -613,7 +614,7 @@ impl ResamplingTransformerWithTiming {
     #[allow(dead_code)]
     pub fn new(
         input: Vec<mpsc::Receiver<AggTradeData>>,
-        output: Vec<mpsc::Sender<BarData>>,
+        output: Vec<mpsc::Sender<BarDataWithLogExtra>>,
         granularity: chrono::Duration,
         name: String,
         client: binance::market::Market,
@@ -640,7 +641,8 @@ impl Transformer for ResamplingTransformerWithTiming {
         let time_gap_in_seconds = this_time_gap.num_seconds();
         drop(this);
         // create a shared data structure to allow routinely update
-
+        let atomic_cursor = Arc::new(AtomicU64::new(0));
+        let atomic_cursor_clone = atomic_cursor.clone();
         let data = Arc::new(AtomicCell::new(DataSlice::default()));
         let inner_clone = self.inner.clone();
         let inner_clone_v2 = inner_clone.clone();
@@ -662,9 +664,6 @@ impl Transformer for ResamplingTransformerWithTiming {
         let notify_clone = notify.clone();
         let lock_notify = Arc::new(tokio::sync::Notify::new());
         let lock_notify_clone = lock_notify.clone();
-        let mut cursor = 0; // this is the global cursor that records the current id position
-                            // let (tx, mut rx) = tokio::sync::mpsc::channel(3);
-                            // claim two atomic variable to keep track of the open and close time
         let window_left = Arc::new(AtomicU64::new(0));
         let window_right = Arc::new(AtomicU64::new(0));
         let l = window_left.clone();
@@ -676,17 +675,31 @@ impl Transformer for ResamplingTransformerWithTiming {
 
         let done_notify = Arc::new(tokio::sync::Notify::new());
         let done_notify_clone = done_notify.clone();
+        // use the record the missing segments from previous data
+        let missing_data = Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()));
+        let missing_data_clone = missing_data.clone();
+        let missing_data_clone_v2 = missing_data.clone();
         tokio::spawn(async move {
-            let mut missing_segments = vec![];
+            // let mut missing_segments = vec![];
             let mut nr_missing = 0;
             let in_range = |x: u64| -> bool {
-                let left = l.load(Ordering::Relaxed);
-                let right = r.load(Ordering::Relaxed);
+                let left = l.load(Ordering::SeqCst);
+                let right = r.load(Ordering::SeqCst);
                 if left == 0 || right == 0 {
                     return true;
                 }
-                x >= left && x <= right
+                x <= right
             };
+
+            let is_from_previous_interval = |x: u64| -> bool {
+                let left = l.load(Ordering::SeqCst);
+                let right = r.load(Ordering::SeqCst);
+                if left == 0 || right == 0 {
+                    return false;
+                }
+                x < left
+            };
+            let mut max_latency = 0;
             loop {
                 let agg_trade = if let Some(agg_trade) = unused_agg_trade.lock().await.pop() {
                     // tracing::error!("agg id is {:?}", agg_trade.aggregated_trade_id);
@@ -702,10 +715,32 @@ impl Transformer for ResamplingTransformerWithTiming {
                     let agg_trade: AggTradeData = agg_trade.unwrap();
                     agg_trade
                 };
+                // check for the max latency, if greater than maxx, update maxx and print error log
+                // check the cursor and update the cursor
+                let cursor = atomic_cursor_clone.load(Ordering::Relaxed);
+                if agg_trade.aggregated_trade_id < cursor {
+                    tracing::error!(
+                        "[CURSOR ERROR] {:?} < {:?}",
+                        agg_trade.aggregated_trade_id,
+                        cursor
+                    );
+                } else {
+                    atomic_cursor_clone.store(agg_trade.aggregated_trade_id, Ordering::Relaxed);
+                }
 
+                if is_from_previous_interval(agg_trade.trade_time) {
+                    let parent_interval =
+                        this_period_start(agg_trade.trade_time, time_gap_in_seconds as u32);
+                    // update missing_data
+                    (*(missing_data.write().await))
+                        .entry(parent_interval)
+                        .or_insert(DataSlice::default())
+                        .update_from_agg_trade(agg_trade);
+                    continue;
+                }
                 if !in_range(agg_trade.trade_time) {
                     stale_notify.notify_one();
-                    
+
                     lock_notify.notify_one();
                     while atomic_lock
                         .compare_exchange_weak(true, false, Ordering::Relaxed, Ordering::Relaxed)
@@ -721,21 +756,21 @@ impl Transformer for ResamplingTransformerWithTiming {
                 let this_data = data.load();
                 let mut copied_data = this_data;
                 // update the cursor
-                if cursor == 0 {
-                    cursor = agg_trade.aggregated_trade_id;
-                } else {
-                    if agg_trade.aggregated_trade_id < cursor {
-                        panic!("{:?} < {:?}", agg_trade.aggregated_trade_id, cursor);
-                    } else if agg_trade.aggregated_trade_id - cursor > 1 {
-                        if let Ok(missed) =
-                            pipeline_utils::Segment::try_new(cursor, agg_trade.aggregated_trade_id)
-                        {
-                            missing_segments.push(missed.clone());
-                            nr_missing += missed.size();
-                        }
-                    }
-                    cursor = cursor.max(agg_trade.aggregated_trade_id);
-                }
+                // if cursor == 0 {
+                //     cursor = agg_trade.aggregated_trade_id;
+                // } else {
+                //     if agg_trade.aggregated_trade_id < cursor {
+                //         panic!("{:?} < {:?}", agg_trade.aggregated_trade_id, cursor);
+                //     } else if agg_trade.aggregated_trade_id - cursor > 1 {
+                //         if let Ok(missed) =
+                //             pipeline_utils::Segment::try_new(cursor, agg_trade.aggregated_trade_id)
+                //         {
+                //             missing_segments.push(missed.clone());
+                //             nr_missing += missed.size();
+                //         }
+                //     }
+                //     // cursor = cursor.max(agg_trade.aggregated_trade_id);
+                // }
 
                 copied_data.update_from_agg_trade(agg_trade);
                 // write back to the shared data structure
@@ -766,26 +801,27 @@ impl Transformer for ResamplingTransformerWithTiming {
 
         let d = this_time_gap.to_std().unwrap();
         let interval_duration = d.as_secs();
-        // timer thread
 
         tokio::spawn(async move {
+            let time_gap_in_seconds = interval_duration;
             loop {
-                let (next_instant, next_timestamp) =
-                    get_next_instant_and_timestamp(interval_duration);
-                let current_left = window_left.load(Ordering::Relaxed);
-                let current_right = window_right.load(Ordering::Relaxed);
+                let current_left = window_left.load(Ordering::SeqCst);
+                let current_right = window_right.load(Ordering::SeqCst);
                 let next_timestamp = if current_left == 0 {
+                    let (_, next_timestamp) = get_next_instant_and_timestamp(interval_duration);
                     window_left.store(
                         next_timestamp - interval_duration * 1000 + 1,
                         Ordering::Relaxed,
                     );
-                    window_right.store(next_timestamp - 1, Ordering::Relaxed);
+                    window_right.store(next_timestamp, Ordering::SeqCst);
                     next_timestamp
                 } else {
-                    window_left.store(current_left + interval_duration * 1000, Ordering::Relaxed);
-                    window_right.store(current_right + interval_duration * 1000, Ordering::Relaxed);
+                    window_left.store(current_left + interval_duration * 1000, Ordering::SeqCst);
+                    window_right.store(current_right + interval_duration * 1000, Ordering::SeqCst);
                     current_right + interval_duration * 1000
                 };
+
+                let next_instant = instant_from_timestamp(next_timestamp);
                 // info!("the next timestamp is: {:?}", next_timestamp);
 
                 // info!("now timestamp is: {:?}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
@@ -804,13 +840,12 @@ impl Transformer for ResamplingTransformerWithTiming {
                 if should_quit_clone.load(Ordering::Relaxed) {
                     break;
                 }
-                
-                
+
                 should_init_sender_thread_clone.lock();
                 lock_notify_clone.notified().await;
                 // allow 15ms/ 100 more runs or the fetched data's stamp is greater than the next time point
-                let counter = 1200;
-                let duration = tokio::time::Duration::from_millis(400);
+                let counter = 500;
+                let duration = tokio::time::Duration::from_millis(100);
                 let inner_clone_v2 = inner_clone_v2.clone();
                 let buffered_unused = unused_buffer.clone();
                 let current_bar = data_clone_v2.clone();
@@ -818,6 +853,15 @@ impl Transformer for ResamplingTransformerWithTiming {
                 let cancel_notify_clone = cancel_notify.clone(); // these two are used to gracefully cancel the task
                 let cancel_done_notify = Arc::new(tokio::sync::Notify::new());
                 let cancel_done_notify_clone = cancel_done_notify.clone();
+                {
+                    let mut temp_data = data_clone_v2.load();
+                    temp_data.open_time = window_left.load(Ordering::SeqCst);
+                    temp_data.close_time = window_right.load(Ordering::SeqCst);
+                    temp_data.is_counter_buffer_triggered = true;
+                    data_clone_v2.store(temp_data);
+                }
+                let atomic_cursor = atomic_cursor.clone();
+                let missing_data = missing_data_clone_v2.clone();
                 let updater_task = tokio::spawn(tokio::task::unconstrained(async move {
                     let mut ticket = inner_clone_v2.lock().await;
                     for _ in 1..=counter {
@@ -830,6 +874,17 @@ impl Transformer for ResamplingTransformerWithTiming {
                         }
 
                         let agg_trade: AggTradeData = agg_trade.unwrap();
+                        let trade_id = agg_trade.aggregated_trade_id;
+                        if agg_trade.trade_time < next_timestamp - interval_duration * 1000 + 1 {
+                            let parent_interval =
+                                this_period_start(agg_trade.trade_time, time_gap_in_seconds as u32);
+                            // update missing_data
+                            (*(missing_data.write().await))
+                                .entry(parent_interval)
+                                .or_insert(DataSlice::default())
+                                .update_from_agg_trade(agg_trade);
+                            continue;
+                        }
                         if agg_trade.trade_time > next_timestamp {
                             buffered_unused.lock().await.push(agg_trade);
                             break;
@@ -837,6 +892,12 @@ impl Transformer for ResamplingTransformerWithTiming {
                             let mut copied_data = current_bar.load();
                             copied_data.update_from_agg_trade(agg_trade);
                             current_bar.store(copied_data);
+                            let cursor = atomic_cursor.load(Ordering::Relaxed);
+                            if trade_id < cursor {
+                                tracing::error!("[CURSOR ERROR] {:?} < {:?}", trade_id, cursor);
+                            } else {
+                                atomic_cursor.store(trade_id, Ordering::Relaxed);
+                            }
                         }
                     }
                     cancel_done_notify_clone.notify_one();
@@ -844,18 +905,12 @@ impl Transformer for ResamplingTransformerWithTiming {
                 // this guratnees that the agg_trade is in current time scope
                 tokio::select! {
                     _ = updater_task => {
-                        let mut temp_data = data_clone_v2.load();
-                        temp_data.open_time = next_timestamp - interval_duration * 1000 + 1;
-                        temp_data.close_time = next_timestamp;
-                        temp_data.is_counter_buffer_triggered = true;
-                        data_clone_v2.store(temp_data);
+
                     }
                     _ = tokio::time::sleep(duration) => {
                         cancel_notify.store(true, Ordering::Relaxed);
                         cancel_done_notify.notified().await;
                         let mut temp_data = data_clone_v2.load();
-                        temp_data.open_time = next_timestamp - interval_duration * 1000 + 1;
-                        temp_data.close_time = next_timestamp;
                         temp_data.is_time_buffer_triggered = true;
                         data_clone_v2.store(temp_data);
                     }
@@ -922,11 +977,18 @@ impl Transformer for ResamplingTransformerWithTiming {
                         }
                     }
                 }
-
-                if let Err(_) = tx
-                    .send(this_data.to_bar_data_with_symbol(name.clone()))
+                let collected_missing_data = missing_data_clone
+                    .write()
                     .await
-                {
+                    .drain()
+                    .map(|(k, v)| (k, v.to_bar_data_with_symbol(name.clone())))
+                    .collect::<std::collections::HashMap<u64, BarData>>();
+                let bar_data = this_data.to_bar_data_with_symbol(name.clone());
+                let response_with_log_extra = BarDataWithLogExtra {
+                    data: Some(bar_data),
+                    missing_data: collected_missing_data,
+                };
+                if let Err(_) = tx.send(response_with_log_extra).await {
                     should_quit.store(true, Ordering::Relaxed);
                     break;
                 }

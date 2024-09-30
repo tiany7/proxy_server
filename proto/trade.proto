@@ -64,6 +64,16 @@ message GetMarketDataResponse {
     BarData data = 1;
 }
 
+// given that the aggregate trade data do not come in the same order as the time series data
+// we need to correct the data by adding the missing data in the time series data
+// we will pass them to downstreams and fix them later on
+// we only need to keep one bar per time period, since the kline data doesn't care about the order of update 
+message BarDataWithLogExtra {
+    BarData data = 1;
+    map<uint64, BarData> missing_data = 2;
+}
+
+
 message BarData {
     uint64 open_time = 1;
     double open = 2;

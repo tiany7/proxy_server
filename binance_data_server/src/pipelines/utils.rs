@@ -1,5 +1,5 @@
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Ok, Result};
 use chrono::{DateTime, Timelike};
@@ -45,8 +45,6 @@ impl AtomicLock {
             tokio::task::yield_now().await;
         }
     }
-
-    
 }
 
 impl Segment {
@@ -164,7 +162,7 @@ pub fn get_next_instant_and_timestamp(seconds: u64) -> (Instant, u64) {
     let milliseconds = seconds as u128 * 1000;
     let next_timestamp = (timestamp_millis / milliseconds + 1) * milliseconds;
     let diff = next_timestamp - timestamp_millis;
-    let instant = Instant::now() + Duration::from_millis(diff as u64) + Duration::from_millis(5);  
+    let instant = Instant::now() + Duration::from_millis(diff as u64) + Duration::from_millis(5);
     (instant, next_timestamp as u64 - 1)
 }
 
@@ -208,6 +206,20 @@ where
             cleanup();
         }
     }
+}
+
+pub fn instant_from_timestamp(timestamp: u64) -> Instant {
+    let now_instant = Instant::now();
+    let now_system_time = SystemTime::now();
+
+    let target_system_time = UNIX_EPOCH + Duration::from_secs(timestamp);
+
+    let duration_until_target = match target_system_time.duration_since(now_system_time) {
+        std::result::Result::Ok(duration) => duration,
+        Err(_) => Duration::from_secs(0),
+    };
+
+    now_instant + duration_until_target
 }
 
 #[cfg(test)]
