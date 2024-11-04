@@ -23,13 +23,10 @@ import time
 from flask import Flask, request, jsonify
 from google.protobuf.json_format import MessageToJson
 from trade_pb2 import BarData
-<<<<<<< HEAD
-=======
 import unittest
 from unittest.mock import patch, MagicMock
 import ccxt
 from threading import Semaphore
->>>>>>> [misc] disaster recovery complete
 
 app = Flask(__name__)
 
