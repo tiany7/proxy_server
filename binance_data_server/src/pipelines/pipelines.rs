@@ -125,8 +125,8 @@ pub struct DataSlice {
     close_time: u64,
     last: Option<u64>,
     symbol: &'static str,
-    is_counter_buffer_triggered: bool,
-    is_time_buffer_triggered: bool,
+    missing_agg_trade_start_id: u64,
+    missing_agg_trade_end_id: u64,
     first_agg_trade_id: u64,
     last_agg_trade_id: u64,
 }
@@ -149,8 +149,8 @@ impl Default for DataSlice {
             open_time: 0,
             close_time: 0,
             last: None,
-            is_counter_buffer_triggered: false,
-            is_time_buffer_triggered: false,
+            missing_agg_trade_start_id: 0,
+            missing_agg_trade_end_id: 0,
             symbol: "",
             first_agg_trade_id: 0,
             last_agg_trade_id: 0,
@@ -177,6 +177,8 @@ impl DataSlice {
         self.taker_buy_quote_asset_volume = 0.0;
         self.min_id = u64::MAX;
         self.max_id = u64::MIN;
+        self.missing_agg_trade_end_id = 0;
+        self.missing_agg_trade_start_id = 0;
         self.missing_count = 0;
         self.open_time = 0;
         self.close_time = 0;
@@ -185,9 +187,9 @@ impl DataSlice {
 
     pub fn update_from_agg_trade(&mut self, agg_trade: AggTradeData) {
         if self.first_agg_trade_id == 0 {
-            self.first_agg_trade_id = agg_trade.trade_time;
+            self.first_agg_trade_id = agg_trade.aggregated_trade_id;
         }
-        self.last_agg_trade_id = agg_trade.trade_time.max(self.last_agg_trade_id);
+        self.last_agg_trade_id = self.last_agg_trade_id.max(agg_trade.aggregated_trade_id);
         if self.number_of_trades == 0 {
             // self.open_time = agg_trade.trade_time;
             self.open_price = agg_trade.price;
@@ -248,8 +250,8 @@ impl DataSlice {
             open_time: self.open_time,
             close_time: self.close_time,
             symbol: self.symbol.to_string(),
-            is_counter_buffer_triggered: self.is_counter_buffer_triggered,
-            is_time_buffer_triggered: self.is_time_buffer_triggered,
+            missing_agg_trade_start_id: self.missing_agg_trade_start_id,
+            missing_agg_trade_end_id: self.missing_agg_trade_start_id,
             first_agg_trade_id: self.first_agg_trade_id,
             last_agg_trade_id: self.last_agg_trade_id,
         }
@@ -272,8 +274,8 @@ impl DataSlice {
             open_time: self.open_time,
             close_time: self.close_time,
             symbol,
-            is_counter_buffer_triggered: self.is_counter_buffer_triggered,
-            is_time_buffer_triggered: self.is_time_buffer_triggered,
+            missing_agg_trade_start_id: self.missing_agg_trade_start_id,
+            missing_agg_trade_end_id: self.missing_agg_trade_end_id,
             first_agg_trade_id: self.first_agg_trade_id,
             last_agg_trade_id: self.last_agg_trade_id,
         }
@@ -700,14 +702,38 @@ impl Transformer for ResamplingTransformerWithTiming {
                 x < left
             };
             let mut max_latency = 0;
+            let default_timeout = tokio::time::Duration::from_secs(1);
             loop {
+                let mut is_timeout = false;
                 let agg_trade = if let Some(agg_trade) = unused_agg_trade.lock().await.pop() {
                     // tracing::error!("agg id is {:?}", agg_trade.aggregated_trade_id);
                     agg_trade
                 } else {
                     let mut ticket = inner_clone.lock().await;
-                    let agg_trade = ticket.input[0].recv().await;
+                    let agg_trade = match tokio::time::timeout(default_timeout, ticket.input[0].recv()).await {
+                        Ok(t) => t,
+                        Err(_) =>{
+                            is_timeout = true;
+                            None
+                        } 
+                    };
                     drop(ticket);
+                    if is_timeout {
+                        if should_init_sender_thread.test() {
+                            should_init_sender_thread.unlock();
+                            lock_notify.notify_one();
+                            while atomic_lock
+                                .compare_exchange_weak(true, false, Ordering::Relaxed, Ordering::Relaxed)
+                                .is_err()
+                            {
+                                tokio::task::yield_now().await;
+                            }
+                            notify.notify_one();
+                            done_notify.notified().await;
+                        } else {
+                            continue;
+                        }
+                    }
                     if agg_trade.is_none() {
                         break;
                     }
@@ -718,13 +744,22 @@ impl Transformer for ResamplingTransformerWithTiming {
                 // check for the max latency, if greater than maxx, update maxx and print error log
                 // check the cursor and update the cursor
                 let cursor = atomic_cursor_clone.load(Ordering::Relaxed);
-                if agg_trade.aggregated_trade_id < cursor {
+                let trade_id = agg_trade.aggregated_trade_id;
+                if trade_id < cursor {
                     tracing::error!(
                         "[CURSOR ERROR] {:?} < {:?}",
                         agg_trade.aggregated_trade_id,
                         cursor
                     );
+                    continue;
                 } else {
+                    if trade_id > cursor + 1 {
+                        let this_data = data.load();
+                        let mut copied_data = this_data;
+                        copied_data.missing_agg_trade_start_id = cursor + 1;
+                        copied_data.missing_agg_trade_end_id = trade_id; // this means there is some data loss due to a variety of reasons
+                        data.store(copied_data);
+                    }
                     atomic_cursor_clone.store(agg_trade.aggregated_trade_id, Ordering::Relaxed);
                 }
 
@@ -857,18 +892,28 @@ impl Transformer for ResamplingTransformerWithTiming {
                     let mut temp_data = data_clone_v2.load();
                     temp_data.open_time = window_left.load(Ordering::SeqCst);
                     temp_data.close_time = window_right.load(Ordering::SeqCst);
-                    temp_data.is_counter_buffer_triggered = true;
                     data_clone_v2.store(temp_data);
                 }
                 let atomic_cursor = atomic_cursor.clone();
                 let missing_data = missing_data_clone_v2.clone();
                 let updater_task = tokio::spawn(tokio::task::unconstrained(async move {
                     let mut ticket = inner_clone_v2.lock().await;
+                    let default_timeout = tokio::time::Duration::from_millis(5);
                     for _ in 1..=counter {
                         if cancel_notify_clone.load(Ordering::Relaxed) {
                             break;
                         }
-                        let agg_trade = ticket.input[0].recv().await;
+                        let mut is_timeout = false;
+                        let agg_trade = match tokio::time::timeout(default_timeout, ticket.input[0].recv()).await {
+                            Ok(t) => t,
+                            Err(_) =>{
+                                is_timeout = true;
+                                None
+                            } 
+                        };
+                        if is_timeout {
+                            continue;
+                        }
                         if agg_trade.is_none() {
                             break;
                         }
@@ -891,13 +936,19 @@ impl Transformer for ResamplingTransformerWithTiming {
                         } else {
                             let mut copied_data = current_bar.load();
                             copied_data.update_from_agg_trade(agg_trade);
-                            current_bar.store(copied_data);
+                            
                             let cursor = atomic_cursor.load(Ordering::Relaxed);
                             if trade_id < cursor {
                                 tracing::error!("[CURSOR ERROR] {:?} < {:?}", trade_id, cursor);
+                                continue;
                             } else {
+                                if trade_id > cursor + 1 {
+                                    copied_data.missing_agg_trade_start_id = cursor + 1;
+                                    copied_data.missing_agg_trade_end_id = trade_id;
+                                }
                                 atomic_cursor.store(trade_id, Ordering::Relaxed);
                             }
+                            current_bar.store(copied_data);
                         }
                     }
                     cancel_done_notify_clone.notify_one();
@@ -911,7 +962,6 @@ impl Transformer for ResamplingTransformerWithTiming {
                         cancel_notify.store(true, Ordering::Relaxed);
                         cancel_done_notify.notified().await;
                         let mut temp_data = data_clone_v2.load();
-                        temp_data.is_time_buffer_triggered = true;
                         data_clone_v2.store(temp_data);
                     }
                 }
@@ -930,12 +980,14 @@ impl Transformer for ResamplingTransformerWithTiming {
         tokio::spawn(async move {
             let mut last_data = DataSlice::default();
             let name_clone = name.clone();
+            let mut is_first_bar = true;
             loop {
                 notify_clone.notified().await;
                 let mut this_data = data_clone.load();
                 let mut default_slice = DataSlice::default();
                 data_clone.store(default_slice);
                 done_notify_clone.notify_one();
+                
                 if this_data.number_of_trades == 0 {
                     if last_data.number_of_trades != 0 {
                         this_data.open_price = last_data.close_price;
@@ -943,38 +995,42 @@ impl Transformer for ResamplingTransformerWithTiming {
                         this_data.high_price = last_data.close_price;
                         this_data.low_price = last_data.close_price;
                     } else {
-                        let mut last_1000_agg_trade = market_client
-                            .get_agg_trades(name_clone.clone(), None, None, None, 1000)
-                            .await
-                            .unwrap_or(vec![])
-                            .into_iter()
-                            .map(|x| AggTradeData {
-                                symbol: name.clone(),
-                                price: x.price,
-                                quantity: x.qty,
-                                trade_time: x.time,
-                                event_type: "aggTrade".to_string(),
-                                is_buyer_maker: x.maker,
-                                first_break_trade_id: x.first_id,
-                                last_break_trade_id: x.last_id,
-                                aggregated_trade_id: x.agg_id,
-                            })
-                            .collect::<Vec<AggTradeData>>();
-                        let mut is_first_trade = true;
-                        let mut left_bound = 0;
-                        while let Some(agg_trade) = last_1000_agg_trade.pop() {
-                            if is_first_trade {
-                                left_bound = this_period_start(
-                                    agg_trade.trade_time - interval_duration * 1000,
-                                    interval_duration as u32,
-                                );
-                                is_first_trade = false;
-                            }
-                            if agg_trade.trade_time < left_bound {
-                                break;
-                            }
-                            this_data.update_from_agg_trade(agg_trade);
-                        }
+                        this_data.open_price = 99998.0;
+                        this_data.close_price = 99998.0;
+                        this_data.high_price = 99998.0;
+                        this_data.low_price = 99998.0;
+                        // let mut last_1000_agg_trade = market_client
+                        //     .get_agg_trades(name_clone.clone(), None, None, None, 1000)
+                        //     .await
+                        //     .unwrap_or(vec![])
+                        //     .into_iter()
+                        //     .map(|x| AggTradeData {
+                        //         symbol: name.clone(),
+                        //         price: x.price,
+                        //         quantity: x.qty,
+                        //         trade_time: x.time,
+                        //         event_type: "aggTrade".to_string(),
+                        //         is_buyer_maker: x.maker,
+                        //         first_break_trade_id: x.first_id,
+                        //         last_break_trade_id: x.last_id,
+                        //         aggregated_trade_id: x.agg_id,
+                        //     })
+                        //     .collect::<Vec<AggTradeData>>();
+                        // let mut is_first_trade = true;
+                        // let mut left_bound = 0;
+                        // while let Some(agg_trade) = last_1000_agg_trade.pop() {
+                        //     if is_first_trade {
+                        //         left_bound = this_period_start(
+                        //             agg_trade.trade_time - interval_duration * 1000,
+                        //             interval_duration as u32,
+                        //         );
+                        //         is_first_trade = false;
+                        //     }
+                        //     if agg_trade.trade_time < left_bound {
+                        //         break;
+                        //     }
+                        //     this_data.update_from_agg_trade(agg_trade);
+                        // }
                     }
                 }
                 let collected_missing_data = missing_data_clone
@@ -988,6 +1044,10 @@ impl Transformer for ResamplingTransformerWithTiming {
                     data: Some(bar_data),
                     missing_data: collected_missing_data,
                 };
+                if !is_first_bar  {
+                    is_first_bar = false;
+                    continue;
+                }
                 if let Err(_) = tx.send(response_with_log_extra).await {
                     should_quit.store(true, Ordering::Relaxed);
                     break;

@@ -4,6 +4,6 @@ metrics_server_port: 8888
 api_key: "api key"
 max_threads: 4
 recover_batch_size: 100
-restart_interval: 1800
+restart_interval: 180
 
 

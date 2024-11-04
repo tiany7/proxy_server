@@ -1,8 +1,21 @@
 // this file is the declaration of the metrics that will be used in the application
+use std::str::FromStr;
+
 use actix_web::{web, App, HttpServer};
 use lazy_static::lazy_static;
 use prometheus::{register_histogram, register_int_counter};
 use prometheus::{Histogram, IntCounter};
+use serde::Deserialize;
+
+// market eng params
+#[derive(Deserialize)]
+struct QueryParams {
+    start_time: String,
+    end_time: String,
+    count: u32,
+}
+
+
 
 lazy_static! {
     pub static ref AVG_PRICE_PER_MINUTE: Histogram =

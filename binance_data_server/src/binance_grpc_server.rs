@@ -23,12 +23,14 @@ use tokio::sync::{mpsc, Mutex};
 use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
 use tonic::{transport::Server, Request, Response, Status};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
+use tracing_subscriber::fmt;
 use tracing_subscriber::fmt::writer::BoxMakeWriter;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 use tracing_subscriber::layer::SubscriberExt;
 
 use crate::binance_data_manager::binance_data_manager::BinanceDataManager;
 use crate::pipelines::pipelines::{ChannelData, DataSlice, ResamplingTransformer, Transformer};
+use crate::pipelines::redis_client::RedisClient;
 
 fn parse_f64_or_default(input: &str) -> f64 {
     input.parse::<f64>().unwrap_or(0.0)
@@ -322,7 +324,6 @@ impl Trade for TradeService {
             granularity
         );
 
-        // let key = fmt_key(&requested_symbol, "aggTrade", &granularity.to_string());
         let binance_mgr = self.binance_mgr.clone();
         let market_client = binance_mgr.lock().await.get_shared_market_client();
         let mut data_stream_by_symbol = binance_mgr
@@ -332,10 +333,13 @@ impl Trade for TradeService {
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
         for symbol in requested_symbols {
+            if !data_stream_by_symbol.contains_key(&symbol) {
+                println!("symbol {}", symbol.clone());
+            }
             let mut data_stream = data_stream_by_symbol.remove(&symbol).unwrap();
             let tx = tx.clone();
             let (resample_tx, mut resample_rx) = mpsc::channel(5);
-            let (data_input, mut data_output) = mpsc::channel(1000);
+            let (data_input, mut data_output) = mpsc::channel(40);
             let market_client = market_client.clone();
             tokio::spawn(async move {
                 while let Ok(msg) = data_stream.recv().await {
@@ -357,11 +361,33 @@ impl Trade for TradeService {
                 .await;
             });
             tokio::spawn(async move {
+                let redis_client = RedisClient::new("bar_data", "redis://127.0.0.1:6379/");
                 while let Some(data) = resample_rx.recv().await {
                     let response_data = data.data.expect("data must not be null");
-                    let response = GetMarketDataResponse { data: Some(response_data) };
-                    tracing::error!("missing data {:?}", data.missing_data);
-                    let _ = tx.send(Ok(response)).await;
+                    let symbol = response_data.symbol.clone();
+                    let key = fmt_key(&symbol, "aggTrade", &granularity.to_string());
+                    let period_start = response_data.open_time;
+                    let response = GetMarketDataResponse {
+                        data: Some(response_data.clone()),
+                    };
+                    
+                    redis_client.append_timely_bar_data(key.as_str(), response_data, period_start)
+                        .await
+                        .expect("Failed to append timely bar data");
+                    if !data.missing_data.is_empty() {
+                        tracing::error!("Missing data: {:?}", data.missing_data);
+                        let redis_client = redis_client.clone();
+                        tokio::spawn(async move {
+                            for (open_time, missing_bar) in data.missing_data {
+                                redis_client.modify_set_value(
+                                    key.as_str(),
+                                    open_time as f64,
+                                    missing_bar,
+                                ).await.expect("Failed to modify set value");
+                            }
+                        });
+                    }
+                    // let _ = tx.send(Ok(response)).await;
                 }
             });
         }
@@ -389,7 +415,7 @@ fn main() {
         "binance_data_server.log",
     );
     let subscriber = tracing_subscriber::FmtSubscriber::builder()
-        .with_max_level(tracing::Level::ERROR)
+        .with_max_level(tracing::Level::WARN)
         .with_writer(file_appender)
         .with_line_number(true)
         .with_file(true)

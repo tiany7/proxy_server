@@ -90,8 +90,8 @@ message BarData {
     uint64 max_id = 13;
     uint64 min_id = 14;
     string symbol = 15;
-    bool is_counter_buffer_triggered = 16;
-    bool is_time_buffer_triggered = 17;
+    uint64 missing_agg_trade_start_id = 16;
+    uint64 missing_agg_trade_end_id = 17; // if there isn't an end id, we will use the last_agg_trade_id to close this
     uint64 first_agg_trade_id = 18;
     uint64 last_agg_trade_id = 19;
 }

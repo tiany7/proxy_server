@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::fmt::{self, Debug, Formatter};
+use std::sync::atomic::Ordering;
 use std::sync::{atomic::AtomicBool, Arc};
 
 use anyhow::Error;
+use async_std::task;
 use binance::api::Binance;
 use binance::config::{Config, DATA_REST_ENDPOINT};
 use binance::market::Market;
@@ -11,6 +13,7 @@ use binance::websockets::{agg_trade_stream, trade_stream, WebSockets};
 use binance::ws_model::WebsocketEvent;
 use metrics_server::MISSING_VALUE_BY_CHANNEL;
 use tokio::{sync::Mutex, task::JoinHandle};
+
 
 use crate::AggTradeData;
 
@@ -118,10 +121,23 @@ impl BinanceDataManager {
         tokio::spawn(async move {
             // use tokio interval to restart the connection
             let d = tokio::time::Duration::from_secs(restart_interval * 60);
+            let mut guard = None;
             loop {
-                tokio::time::sleep(d).await;
+                if guard.is_none() {
+                    tokio::time::sleep(d).await;
+                } else {
+                    let guard = guard.unwrap();
+                    tokio::select! {
+                        _ = guard => {
+                            tracing::error!("restart due to guard");
+                        }
+                        _ = tokio::time::sleep(d) => {
+
+                        }
+                    }
+                }
                 tracing::info!("graceful restart");
-                binance_data_manager.lock().await.graceful_restart().await;
+                guard = Some(binance_data_manager.lock().await.graceful_restart().await);
             }
         });
         binance_data_manager_clone
@@ -306,9 +322,8 @@ impl BinanceDataManager {
         let sender_by_symbol: HashMap<String, tokio::sync::broadcast::Sender<AggTradeData>> =
             symbols
                 .iter()
-                .filter(|key| !self.connections.contains_key(*key))
                 .map(|key| {
-                    let (tx, _) = tokio::sync::broadcast::channel(2000);
+                    let (tx, _) = tokio::sync::broadcast::channel(500);
 
                     (key.clone(), tx)
                 })
@@ -330,7 +345,9 @@ impl BinanceDataManager {
 
         let handle = tokio::spawn(async move {
             let keep_running = AtomicBool::new(true);
-            let mut ws = WebSockets::new(
+            let mut config = binance::config::Config::default();
+            let config = config.set_ws_endpoint("wss://fstream.binance.com");
+            let mut ws = WebSockets::new_with_options(
                 |event: binance::ws_model::CombinedStreamEvent<
                     binance::ws_model::WebsocketEventUntag,
                 >| {
@@ -345,7 +362,7 @@ impl BinanceDataManager {
                                             symbol: msg.symbol,
                                             price: crate::parse_f64_or_default(&msg.price),
                                             quantity: crate::parse_f64_or_default(&msg.qty),
-                                            trade_time: msg.trade_order_time,
+                                            trade_time: msg.trade_order_time.min(msg.event_time),
                                             event_type: "aggTrade".to_string(),
                                             is_buyer_maker: msg.is_buyer_maker,
                                             first_break_trade_id: msg.first_break_trade_id,
@@ -372,7 +389,7 @@ impl BinanceDataManager {
                     }
 
                     Ok(())
-                },
+                },config
             );
             ws.connect_multiple(endpoints)
                 .await
@@ -389,9 +406,9 @@ impl BinanceDataManager {
         Ok(receiver_by_symbol)
     }
 
-    pub async fn graceful_restart(&self) {
+    pub async fn graceful_restart(&self) -> tokio::task::JoinHandle<()> {
         // 1.kill old connection
-
+        tracing::warn!("websocket restart");
         // 3.replace the old connection with the new connection
         let mut join_handles = self.binance_connections.lock().await;
 
@@ -400,7 +417,11 @@ impl BinanceDataManager {
 
         // 2.spawn new connection
         let mut batch_connections = self.batch_connections.lock().await;
+        
+        // 3.if the connection fails for somehow reason, restart all of them
+        let is_broken = Arc::new(AtomicBool::new(false));
         while let Some(sender_map) = batch_connections.pop() {
+            let is_broken = is_broken.clone();
             let handle = tokio::spawn(async move {
                 let keep_running = AtomicBool::new(true);
                 let mut ws = WebSockets::new(
@@ -452,6 +473,7 @@ impl BinanceDataManager {
                     .expect("Failed to connect");
 
                 if let Err(e) = ws.event_loop(&keep_running).await {
+                    is_broken.store(true, Ordering::SeqCst);
                     tracing::warn!("the websocket connection is closed: {:?}", e);
                 }
                 ws.disconnect().await.expect("Failed to connect");
@@ -461,6 +483,14 @@ impl BinanceDataManager {
         deprecated_handles.for_each(|handle| {
             handle.abort();
         });
+
+        let guard = tokio::spawn(async move {
+            while !is_broken.load(Ordering::Relaxed) {
+                tokio::task::yield_now().await;
+            }
+        });
+        // this is a guard of the grace restart process, if the connection is broken, then we need to intervene
+        guard
     }
 
     pub async fn get_most_recent_agg_trades(
