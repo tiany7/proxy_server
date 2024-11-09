@@ -9,11 +9,11 @@ import websocket
 import json
 import requests
 
-if os.path.exists("trade_pb2.py"):
-    os.remove("trade_pb2.py")
-if os.path.exists("trade_pb2_grpc.py"):
-    os.remove("trade_pb2_grpc.py")
-os.system("python3 -m grpc_tools.protoc -I../proto/ --python_out=. --grpc_python_out=. trade.proto")
+# if os.path.exists("trade_pb2.py"):
+#     os.remove("trade_pb2.py")
+# if os.path.exists("trade_pb2_grpc.py"):
+#     os.remove("trade_pb2_grpc.py")
+# os.system("python3 -m grpc_tools.protoc -I../proto/ --python_out=. --grpc_python_out=. trade.proto")
 
 from trade_pb2 import GetAggTradeRequest, GetMarketDataRequest, TimeUnit, TimeDuration, GetMarketDataBatchRequest
 from trade_pb2_grpc import TradeStub
@@ -48,8 +48,8 @@ class TradeClient:
         duration = trade_pb2.TimeDuration(value=time_interval, unit=trade_pb2.SECONDS)
         request = GetMarketDataRequest(symbol=symbol, granularity = duration)
         response_stream = self.stub.GetMarketDataWithTiming(request)
-        for rb in response_stream:
-            yield rb
+        # for rb in response_stream:
+        #     yield rb
     def get_market_data_by_batch(self, symbols=['btcusdt'], time_interval=1, timeUnit=trade_pb2.SECONDS):
         print(f"Requesting market data for {symbols} with time interval {time_interval} seconds")
         duration = trade_pb2.TimeDuration(value=time_interval, unit=trade_pb2.SECONDS)
@@ -391,7 +391,7 @@ def main():
     
     for symbol_group in symbols_by_group:
         print(symbol_group)
-        for data in client.get_market_data_by_batch(symbol_group, time_interval=60):
+        for data in client.get_market_data_by_batch(symbol_group, time_interval=30):
             continue
         # outstanding = False
         # data_from_rpc = data.data

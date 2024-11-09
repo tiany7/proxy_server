@@ -159,7 +159,7 @@ impl BinanceDataManager {
             .or_insert_with(|| {
                 tracing::warn!("registered symbol {}", key);
                 let (broadcast_tx, _) = tokio::sync::broadcast::channel(buffer_size);
-                let broadcast_tx_clone: tokio::sync::broadcast::Sender<WebsocketEvent> =
+                let broadcast_tx_clone: tokio::sync::broadcas   ::Sender<WebsocketEvent> =
                     broadcast_tx.clone();
                 tokio::spawn(async move {
                     while let Some(event) = rx.recv().await {

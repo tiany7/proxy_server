@@ -94,7 +94,20 @@ message BarData {
     uint64 missing_agg_trade_end_id = 17; // if there isn't an end id, we will use the last_agg_trade_id to close this
     uint64 first_agg_trade_id = 18;
     uint64 last_agg_trade_id = 19;
+    
+    // sourcer
+    double taker_buy_big_quote_asset_volume = 20;
+    double taker_buy_mid_quote_asset_volume = 21;
+    double taker_buy_sml_quote_asset_volume = 22;
+    double taker_buy_tny_quote_asset_volume = 23;
+
+    double taker_sell_big_quote_asset_volume = 24;
+    double taker_sell_mid_quote_asset_volume = 25;
+    double taker_sell_sml_quote_asset_volume = 26;
+    double taker_sell_tny_quote_asset_volume = 27;
 }
+
+
 
 message PingRequest{
     string ping = 1;

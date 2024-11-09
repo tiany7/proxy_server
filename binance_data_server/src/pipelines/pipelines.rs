@@ -25,7 +25,7 @@ use trade::{BarData, BarDataWithLogExtra};
 use super::utils as pipeline_utils;
 use pipeline_utils::{
     get_next_instant_and_timestamp, instant_from_timestamp, next_interval, this_period_start,
-    AtomicLock, CleanupTask,
+    AtomicLock, CleanupTask, AggTradeType,
 };
 
 #[derive(Debug, Clone)]
@@ -129,6 +129,15 @@ pub struct DataSlice {
     missing_agg_trade_end_id: u64,
     first_agg_trade_id: u64,
     last_agg_trade_id: u64,
+    taker_buy_big_quote_asset_volume : f64,
+    taker_buy_mid_quote_asset_volume : f64,
+    taker_buy_sml_quote_asset_volume : f64,
+    taker_buy_tny_quote_asset_volume : f64,
+
+    taker_sell_big_quote_asset_volume : f64,
+    taker_sell_mid_quote_asset_volume : f64,
+    taker_sell_sml_quote_asset_volume : f64,
+    taker_sell_tny_quote_asset_volume : f64,
 }
 
 impl Default for DataSlice {
@@ -154,6 +163,15 @@ impl Default for DataSlice {
             symbol: "",
             first_agg_trade_id: 0,
             last_agg_trade_id: 0,
+            taker_buy_big_quote_asset_volume : 0.0,
+            taker_buy_mid_quote_asset_volume : 0.0,
+            taker_buy_sml_quote_asset_volume : 0.0,
+            taker_buy_tny_quote_asset_volume : 0.0,
+
+            taker_sell_big_quote_asset_volume : 0.0,
+            taker_sell_mid_quote_asset_volume : 0.0,
+            taker_sell_sml_quote_asset_volume : 0.0,
+            taker_sell_tny_quote_asset_volume : 0.0,
         }
     }
 }
@@ -183,6 +201,15 @@ impl DataSlice {
         self.open_time = 0;
         self.close_time = 0;
         self.last = None;
+        self.taker_buy_big_quote_asset_volume = 0.0;
+        self.taker_buy_mid_quote_asset_volume =  0.0;
+        self.taker_buy_sml_quote_asset_volume  = 0.0;
+        self.taker_buy_tny_quote_asset_volume = 0.0;
+
+        self.taker_sell_big_quote_asset_volume = 0.0;
+        self.taker_sell_mid_quote_asset_volume = 0.0;
+        self.taker_sell_sml_quote_asset_volume = 0.0;
+        self.taker_sell_tny_quote_asset_volume = 0.0;
     }
 
     pub fn update_from_agg_trade(&mut self, agg_trade: AggTradeData) {
@@ -216,7 +243,8 @@ impl DataSlice {
         self.low_price = self.low_price.min(agg_trade.price);
         self.high_price = self.high_price.max(agg_trade.price);
         self.volume += agg_trade.quantity;
-        self.quote_asset_volume += agg_trade.price * agg_trade.quantity;
+        let quote_volume = agg_trade.price * agg_trade.quantity;
+        self.quote_asset_volume += quote_volume;
         self.taker_buy_base_asset_volume += {
             if !agg_trade.is_buyer_maker {
                 agg_trade.quantity
@@ -231,6 +259,37 @@ impl DataSlice {
                 0.0
             }
         };
+        
+        match crate::pipelines::utils::get_agg_trade_type(quote_volume) {
+            AggTradeType::BIG => {
+                if !agg_trade.is_buyer_maker {
+                    self.taker_buy_big_quote_asset_volume += quote_volume;
+                } else {
+                    self.taker_sell_big_quote_asset_volume += quote_volume;
+                }
+            },
+            AggTradeType::MIDDLE => {
+                if !agg_trade.is_buyer_maker {
+                    self.taker_buy_mid_quote_asset_volume += quote_volume;
+                } else {
+                    self.taker_sell_mid_quote_asset_volume += quote_volume;
+                }
+            },
+            AggTradeType::SMALL => {
+                if !agg_trade.is_buyer_maker {
+                    self.taker_buy_sml_quote_asset_volume += quote_volume;
+                } else {
+                    self.taker_sell_sml_quote_asset_volume += quote_volume;
+                }
+            },
+            _ => {
+                if !agg_trade.is_buyer_maker {
+                    self.taker_buy_tny_quote_asset_volume += quote_volume;
+                } else {
+                    self.taker_sell_tny_quote_asset_volume += quote_volume;
+                }
+            }
+        }
     }
 
     pub fn to_bar_data(&self) -> BarData {
@@ -254,6 +313,15 @@ impl DataSlice {
             missing_agg_trade_end_id: self.missing_agg_trade_start_id,
             first_agg_trade_id: self.first_agg_trade_id,
             last_agg_trade_id: self.last_agg_trade_id,
+            taker_buy_big_quote_asset_volume : self.taker_buy_big_quote_asset_volume,
+            taker_buy_mid_quote_asset_volume : self.taker_buy_mid_quote_asset_volume,
+            taker_buy_sml_quote_asset_volume : self.taker_buy_sml_quote_asset_volume,
+            taker_buy_tny_quote_asset_volume : self.taker_buy_tny_quote_asset_volume,
+
+            taker_sell_big_quote_asset_volume : self.taker_sell_big_quote_asset_volume,
+            taker_sell_mid_quote_asset_volume : self.taker_sell_mid_quote_asset_volume,
+            taker_sell_sml_quote_asset_volume : self.taker_sell_sml_quote_asset_volume,
+            taker_sell_tny_quote_asset_volume : self.taker_sell_tny_quote_asset_volume,
         }
     }
 
@@ -278,6 +346,15 @@ impl DataSlice {
             missing_agg_trade_end_id: self.missing_agg_trade_end_id,
             first_agg_trade_id: self.first_agg_trade_id,
             last_agg_trade_id: self.last_agg_trade_id,
+            taker_buy_big_quote_asset_volume : self.taker_buy_big_quote_asset_volume,
+            taker_buy_mid_quote_asset_volume : self.taker_buy_mid_quote_asset_volume,
+            taker_buy_sml_quote_asset_volume : self.taker_buy_sml_quote_asset_volume,
+            taker_buy_tny_quote_asset_volume : self.taker_buy_tny_quote_asset_volume,
+
+            taker_sell_big_quote_asset_volume : self.taker_sell_big_quote_asset_volume,
+            taker_sell_mid_quote_asset_volume : self.taker_sell_mid_quote_asset_volume,
+            taker_sell_sml_quote_asset_volume : self.taker_sell_sml_quote_asset_volume,
+            taker_sell_tny_quote_asset_volume : self.taker_sell_sml_quote_asset_volume,
         }
     }
 }
@@ -753,7 +830,7 @@ impl Transformer for ResamplingTransformerWithTiming {
                     );
                     continue;
                 } else {
-                    if trade_id > cursor + 1 {
+                    if trade_id > cursor + 1  && cursor != 0{
                         let this_data = data.load();
                         let mut copied_data = this_data;
                         copied_data.missing_agg_trade_start_id = cursor + 1;
@@ -942,7 +1019,7 @@ impl Transformer for ResamplingTransformerWithTiming {
                                 tracing::error!("[CURSOR ERROR] {:?} < {:?}", trade_id, cursor);
                                 continue;
                             } else {
-                                if trade_id > cursor + 1 {
+                                if trade_id > cursor + 1 && cursor != 0 {
                                     copied_data.missing_agg_trade_start_id = cursor + 1;
                                     copied_data.missing_agg_trade_end_id = trade_id;
                                 }

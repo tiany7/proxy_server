@@ -106,8 +106,8 @@ def fetch_agg_trades(symbol, from_trade_id, to_trade_id, limit=100):
 
 def update_bar_data_with_agg_trades(bar_data, agg_trades):
     for trade in agg_trades:
-        price = trade['price']
-        quantity = trade['quantity']
+        price = float(trade['price'])
+        quantity = float(trade['quantity'])
 
         if bar_data.open == 0:
             bar_data.open = price
@@ -135,11 +135,10 @@ def fix_the_missing_data(bar_data_list, symbol, limit=100):
                 current_bar.missing_agg_trade_start_id != 0 or
                 current_bar.missing_agg_trade_end_id != 0):
             missing_bars.append(current_bar)
-
+    print(missing_bars)
     for bar in missing_bars:
         from_trade_id = bar.missing_agg_trade_start_id if bar.missing_agg_trade_start_id != 0 else bar.first_agg_trade_id
         to_trade_id = bar.missing_agg_trade_end_id if bar.missing_agg_trade_end_id != 0 else bar.last_agg_trade_id
-
         agg_trades = fetch_agg_trades(symbol, from_trade_id, to_trade_id, limit)
         filtered_trades = [trade for trade in agg_trades if bar.open_time <= trade['timestamp'] <= bar.close_time]
         update_bar_data_with_agg_trades(bar, filtered_trades)
@@ -159,8 +158,12 @@ def get_kline():
 
     try:
         results = r.get_latest_kline_records(redis_key, int(count) + 1) # get one more to do error handling
+        print("here 1")
         fix_the_missing_data(results, symbol)
+        print("here 2")
         json_array = [MessageToJson(res, including_default_value_fields=True) for res in results]
+        if int(count) > 0:
+            json_array = json_array[:len(json_array) - 1]
         if is_reverse == '1':
             json_array.reverse()
         return jsonify(json_array)

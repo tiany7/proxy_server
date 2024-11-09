@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Ok, Result};
+use binance::futures::websockets::AGGREGATED_TRADE;
 use chrono::{DateTime, Timelike};
 use tokio::time::{self, Duration, Instant};
 
@@ -13,6 +14,15 @@ pub struct Segment {
     pub start: u64,
     pub end: u64,
 }
+
+#[derive(Clone, Debug)]
+pub enum AggTradeType {
+    BIG,
+    MIDDLE,
+    SMALL,
+    TINY,
+}
+
 
 #[derive(Debug)]
 pub struct AtomicLock {
@@ -220,6 +230,19 @@ pub fn instant_from_timestamp(timestamp: u64) -> Instant {
     };
 
     now_instant + duration_until_target
+}
+
+pub fn get_agg_trade_type(volume : f64) -> AggTradeType {
+    let adjusted = volume - 1e-6;
+    if adjusted > 1e4 {
+        AggTradeType::BIG
+    } else if adjusted > 1e3 {
+        AggTradeType::MIDDLE
+    } else if adjusted > 1e2 {
+        AggTradeType::SMALL
+    } else {
+        AggTradeType::TINY
+    }
 }
 
 #[cfg(test)]
